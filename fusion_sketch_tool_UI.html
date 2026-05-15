@@ -1,0 +1,1386 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>Fusion 360 スケッチ拘束ツール</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&family=IBM+Plex+Sans+JP:wght@300;400;500&display=swap');
+
+:root {
+  --bg:        #0d1117;
+  --grid:      #161b22;
+  --panel:     #161b22;
+  --border:    #21262d;
+  --border2:   #30363d;
+  --txt:       #c9d1d9;
+  --txt-dim:   #484f58;
+  --txt-mute:  #8b949e;
+  --accent:    #58a6ff;
+  --accent2:   #3fb950;
+  --warn:      #f78166;
+  --yellow:    #e3b341;
+  --purple:    #bc8cff;
+  --line:      #58a6ff;
+  --point:     #e6edf3;
+  --sel:       #388bfd;
+  --dim-clr:   #e3b341;
+  --constraint:#bc8cff;
+  --mono: 'IBM Plex Mono', monospace;
+  --sans: 'IBM Plex Sans JP', sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--txt);
+  font-family: var(--sans);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* ───── TOP BAR ───── */
+#topbar {
+  height: 38px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  gap: 0;
+  flex-shrink: 0;
+  z-index: 20;
+}
+#topbar .logo {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--accent);
+  letter-spacing: .12em;
+  padding-right: 14px;
+  border-right: 1px solid var(--border2);
+  margin-right: 12px;
+  white-space: nowrap;
+}
+.tbgroup {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding-right: 10px;
+  margin-right: 10px;
+  border-right: 1px solid var(--border2);
+}
+.tbgroup:last-child { border-right: none; margin-right: 0; }
+.tblabel {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--txt-dim);
+  letter-spacing: .1em;
+  margin-right: 5px;
+  text-transform: uppercase;
+}
+.tb {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--txt-mute);
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 3px 9px;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: all .12s;
+  letter-spacing: .05em;
+  white-space: nowrap;
+}
+.tb:hover { border-color: var(--border2); color: var(--txt); background: rgba(255,255,255,.04); }
+.tb.active { background: rgba(88,166,255,.15); border-color: var(--accent); color: var(--accent); }
+.tb.active-green { background: rgba(63,185,80,.12); border-color: var(--accent2); color: var(--accent2); }
+.tb.active-yellow { background: rgba(227,179,65,.12); border-color: var(--yellow); color: var(--yellow); }
+.tb.active-purple { background: rgba(188,140,255,.12); border-color: var(--purple); color: var(--purple); }
+.tb.active-red { background: rgba(247,129,102,.12); border-color: var(--warn); color: var(--warn); }
+.tb .icon { margin-right: 4px; font-style: normal; }
+
+#status-bar {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--txt-dim);
+  display: flex;
+  gap: 12px;
+}
+#status-bar span { display: flex; gap: 4px; align-items: center; }
+
+/* ───── LAYOUT ───── */
+#main { display: flex; flex: 1; overflow: hidden; }
+
+/* ───── LEFT PANEL ───── */
+#left-panel {
+  width: 200px;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.panel-head {
+  padding: 8px 12px 6px;
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--txt-dim);
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255,255,255,.02);
+}
+.constraint-list { overflow-y: auto; flex: 1; padding: 6px 0; }
+.c-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+  transition: all .1s;
+  color: var(--txt-mute);
+}
+.c-item:hover { background: rgba(255,255,255,.03); color: var(--txt); }
+.c-item.active { border-left-color: var(--constraint); color: var(--purple); background: rgba(188,140,255,.06); }
+.c-icon {
+  width: 18px; height: 18px;
+  display: flex; align-items: center; justify-content: center;
+  font-style: normal; font-size: 12px;
+  flex-shrink: 0;
+}
+.c-name { font-size: 12px; }
+.c-badge {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 9px;
+  background: var(--border2);
+  color: var(--txt-dim);
+  padding: 1px 5px;
+  border-radius: 2px;
+}
+
+.panel-section { border-top: 1px solid var(--border); padding: 8px 0; }
+
+/* ───── CANVAS ───── */
+#canvas-wrap {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background: var(--bg);
+}
+#canvas {
+  width: 100%; height: 100%;
+  display: block;
+}
+
+/* ───── RIGHT PANEL ───── */
+#right-panel {
+  width: 220px;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.prop-box { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.prop-title { font-family: var(--mono); font-size: 9px; color: var(--txt-dim); letter-spacing: .1em; text-transform: uppercase; margin-bottom: 8px; }
+.prop-row { display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px; }
+.prop-label { font-family: var(--mono); font-size: 9px; color: var(--txt-dim); }
+.prop-val { font-family: var(--mono); font-size: 11px; color: var(--txt); }
+.prop-input {
+  background: var(--bg);
+  border: 1px solid var(--border2);
+  color: var(--txt);
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 4px 7px;
+  border-radius: 3px;
+  outline: none;
+  width: 100%;
+  transition: border-color .12s;
+}
+.prop-input:focus { border-color: var(--accent); }
+.prop-select {
+  background: var(--bg);
+  border: 1px solid var(--border2);
+  color: var(--txt);
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 4px 7px;
+  border-radius: 3px;
+  outline: none;
+  width: 100%;
+}
+.btn-apply {
+  width: 100%;
+  background: rgba(88,166,255,.1);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 5px;
+  cursor: pointer;
+  border-radius: 3px;
+  margin-top: 4px;
+  transition: all .12s;
+  letter-spacing: .06em;
+}
+.btn-apply:hover { background: rgba(88,166,255,.2); }
+.btn-warn {
+  background: rgba(247,129,102,.08);
+  border-color: var(--warn);
+  color: var(--warn);
+}
+.btn-warn:hover { background: rgba(247,129,102,.18); }
+
+/* 寸法表示 */
+.dim-badge {
+  font-family: var(--mono);
+  font-size: 10px;
+  fill: var(--dim-clr);
+  pointer-events: none;
+}
+.dim-line { stroke: var(--dim-clr); stroke-width: 1; fill: none; stroke-dasharray: 3 3; pointer-events: none; }
+.dim-arrow { stroke: var(--dim-clr); stroke-width: 1.5; fill: none; pointer-events: none; }
+
+/* 拘束マーク */
+.c-mark { pointer-events: none; opacity: .85; }
+
+/* ショートカット */
+.shortcuts {
+  padding: 10px 12px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--txt-dim);
+  line-height: 2;
+  margin-top: auto;
+}
+kbd {
+  background: var(--border2);
+  border: 1px solid var(--border);
+  padding: 1px 5px;
+  border-radius: 2px;
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--txt-mute);
+}
+
+/* ツールチップ */
+#tooltip {
+  position: fixed;
+  background: var(--panel);
+  border: 1px solid var(--border2);
+  color: var(--txt);
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 4px 10px;
+  border-radius: 3px;
+  pointer-events: none;
+  z-index: 1000;
+  display: none;
+  white-space: nowrap;
+}
+
+/* 寸法入力ポップアップ */
+#dim-popup {
+  position: fixed;
+  background: var(--panel);
+  border: 1px solid var(--yellow);
+  border-radius: 4px;
+  padding: 10px 12px;
+  z-index: 500;
+  display: none;
+  min-width: 180px;
+  box-shadow: 0 4px 20px rgba(0,0,0,.6);
+}
+#dim-popup .dp-title { font-family: var(--mono); font-size: 9px; color: var(--yellow); letter-spacing: .1em; margin-bottom: 6px; }
+#dim-popup input {
+  background: var(--bg);
+  border: 1px solid var(--yellow);
+  color: var(--yellow);
+  font-family: var(--mono);
+  font-size: 14px;
+  padding: 5px 8px;
+  border-radius: 3px;
+  outline: none;
+  width: 100%;
+}
+#dim-popup .dp-hint { font-family: var(--mono); font-size: 9px; color: var(--txt-dim); margin-top: 4px; }
+
+/* 警告表示 */
+.overconstrained { animation: oc-flash .5s ease infinite alternate; }
+@keyframes oc-flash {
+  from { stroke: var(--warn); }
+  to   { stroke: rgba(247,129,102,.3); }
+}
+
+::-webkit-scrollbar { width: 3px; }
+::-webkit-scrollbar-thumb { background: var(--border2); }
+</style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<div id="topbar">
+  <div class="logo">F360 · SKETCH</div>
+
+  <!-- 描画 -->
+  <div class="tbgroup">
+    <span class="tblabel">描画</span>
+    <button class="tb" id="tb-line" onclick="setTool('line')" title="線分を描く (L)"><i class="icon">╱</i>線分</button>
+    <button class="tb" id="tb-point" onclick="setTool('point')" title="点を置く (P)"><i class="icon">·</i>点</button>
+    <button class="tb" id="tb-select" onclick="setTool('select')" title="選択 (S)"><i class="icon">↖</i>選択</button>
+  </div>
+
+  <!-- 拘束 -->
+  <div class="tbgroup">
+    <span class="tblabel">拘束</span>
+    <button class="tb" id="tb-horizontal" onclick="applyConstraint('水平垂直')" title="水平/垂直 (H)"><i class="icon">⊢</i>水平垂直</button>
+    <button class="tb" id="tb-coincident" onclick="applyConstraint('一致')" title="一致 (C)"><i class="icon">⊙</i>一致</button>
+    <button class="tb" id="tb-equal" onclick="applyConstraint('等しい')" title="等しい (E)"><i class="icon">=</i>等しい</button>
+    <button class="tb" id="tb-perpendicular" onclick="applyConstraint('直行')" title="直行 (R)"><i class="icon">⊥</i>直行</button>
+    <button class="tb" id="tb-parallel" onclick="applyConstraint('並行')" title="並行 (A)"><i class="icon">∥</i>並行</button>
+    <button class="tb" id="tb-midpoint" onclick="applyConstraint('中点')" title="中点 (M)"><i class="icon">◆</i>中点</button>
+    <button class="tb" id="tb-collinear" onclick="applyConstraint('同一線上')" title="同一線上 (O)"><i class="icon">⋯</i>同一線上</button>
+    <button class="tb" id="tb-fixed" onclick="applyConstraint('固定')" title="固定 (F)"><i class="icon">⚓</i>固定</button>
+  </div>
+
+  <!-- 寸法 -->
+  <div class="tbgroup">
+    <span class="tblabel">寸法</span>
+    <button class="tb" id="tb-dim" onclick="setTool('dim')" title="寸法指定 (D)"><i class="icon">↔</i>寸法指定</button>
+    <button class="tb" id="tb-snap" onclick="toggleSnap()" title="スナップ切替 (G)"><i class="icon">⊞</i>座標スナップ</button>
+  </div>
+
+  <div id="status-bar">
+    <span id="st-pts">点: 0</span>
+    <span id="st-lns">線: 0</span>
+    <span id="st-dim">寸法: 0</span>
+    <span id="st-con">拘束: 0</span>
+    <span id="st-mode" style="color:var(--accent)">SELECT</span>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div id="main">
+
+  <!-- LEFT: 拘束リスト -->
+  <div id="left-panel">
+    <div class="panel-head">拘束 / 結線</div>
+    <div class="constraint-list" id="constraint-list">
+      <!-- JSONから生成 -->
+    </div>
+    <div class="panel-section">
+      <div class="c-item" onclick="clearAll()" style="color:var(--warn)">
+        <span class="c-icon">🗑</span><span class="c-name">全消去</span>
+      </div>
+      <div class="c-item" onclick="exportSketch()" style="color:var(--accent2)">
+        <span class="c-icon">↓</span><span class="c-name">JSON出力</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- CANVAS -->
+  <div id="canvas-wrap">
+    <svg id="canvas" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <!-- グリッドパターン -->
+        <pattern id="grid-minor" width="20" height="20" patternUnits="userSpaceOnUse">
+          <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#1a1f27" stroke-width=".5"/>
+        </pattern>
+        <pattern id="grid-major" width="100" height="100" patternUnits="userSpaceOnUse">
+          <rect width="100" height="100" fill="url(#grid-minor)"/>
+          <path d="M 100 0 L 0 0 0 100" fill="none" stroke="#21262d" stroke-width="1"/>
+        </pattern>
+        <!-- 矢印マーカー -->
+        <marker id="arr-dim" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
+          <path d="M0,0 L6,3 L0,6 Z" fill="#e3b341"/>
+        </marker>
+      </defs>
+      <rect id="grid-rect" width="100%" height="100%" fill="url(#grid-major)"/>
+      <!-- 原点クロス -->
+      <g id="origin" transform="translate(0,0)">
+        <line x1="-8" y1="0" x2="8" y2="0" stroke="#3fb950" stroke-width="1.5" opacity=".5"/>
+        <line x1="0" y1="-8" x2="0" y2="8" stroke="#3fb950" stroke-width="1.5" opacity=".5"/>
+      </g>
+      <g id="g-dims"></g>
+      <g id="g-lines"></g>
+      <g id="g-constraints"></g>
+      <g id="g-points"></g>
+      <g id="g-temp"></g>
+    </svg>
+  </div>
+
+  <!-- RIGHT: プロパティ -->
+  <div id="right-panel">
+    <div class="panel-head">プロパティ</div>
+
+    <div class="prop-box" id="sel-info">
+      <div class="prop-title">選択なし</div>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--txt-dim);line-height:1.8">
+        ・線分/点をクリックで選択<br>
+        ・2要素選択後に拘束適用<br>
+        ・寸法モードで線分クリック
+      </div>
+    </div>
+
+    <!-- 寸法コントロール -->
+    <div class="prop-box" id="dim-ctrl" style="display:none">
+      <div class="prop-title">寸法コントロール</div>
+      <div class="prop-row">
+        <div class="prop-label">対象線分 ID</div>
+        <div class="prop-val" id="dc-id">—</div>
+      </div>
+      <div class="prop-row">
+        <div class="prop-label">現在の長さ</div>
+        <div class="prop-val" id="dc-cur">—</div>
+      </div>
+      <div class="prop-row">
+        <div class="prop-label">拘束値 (px)</div>
+        <input class="prop-input" id="dc-val" type="number" min="1" step="1" placeholder="数値を入力">
+      </div>
+      <button class="btn-apply" onclick="applyDimension()">▶ 寸法拘束を適用</button>
+      <button class="btn-apply btn-warn" style="margin-top:4px" onclick="removeDimension()">✕ 寸法解除</button>
+    </div>
+
+    <!-- 選択要素情報 -->
+    <div class="prop-box" id="elem-info" style="display:none">
+      <div class="prop-title">選択要素</div>
+      <div id="elem-info-content"></div>
+    </div>
+
+    <!-- 拘束一覧 -->
+    <div class="prop-box" style="flex:1;overflow:hidden;display:flex;flex-direction:column">
+      <div class="prop-title">適用済み拘束</div>
+      <div id="applied-list" style="overflow-y:auto;flex:1;font-family:var(--mono);font-size:10px;color:var(--txt-dim);line-height:1.9"></div>
+    </div>
+
+    <div class="shortcuts">
+      <kbd>L</kbd>線　<kbd>P</kbd>点　<kbd>S</kbd>選択<br>
+      <kbd>D</kbd>寸法　<kbd>G</kbd>スナップ<br>
+      <kbd>H</kbd>水平垂直　<kbd>C</kbd>一致<br>
+      <kbd>E</kbd>等しい　<kbd>R</kbd>直行<br>
+      <kbd>A</kbd>並行　<kbd>M</kbd>中点<br>
+      <kbd>Del</kbd>削除　<kbd>Esc</kbd>キャンセル
+    </div>
+  </div>
+</div>
+
+<!-- 寸法入力ポップアップ -->
+<div id="dim-popup">
+  <div class="dp-title">▶ 寸法指定</div>
+  <input id="dim-input" type="number" min="1" step="1" placeholder="長さ (px)" autofocus>
+  <div class="dp-hint">Enter で確定 / Esc でキャンセル</div>
+</div>
+
+<div id="tooltip"></div>
+
+<script>
+// ══════════════════════════════════════════════
+//  JSON仕様: Fusion 360 拘束定義
+// ══════════════════════════════════════════════
+const CONSTRAINT_SPEC = [
+  {"id":"N1778732776872","content":"Reference：fusion 360 の拘束","parentId":null,"createdAt":"13:26:16"},
+  {"id":"N1778732819878","content":"結線機能","parentId":null,"createdAt":"13:26:59"},
+  {"id":"N1778732884466","content":"水平垂直","parentId":"N1778732776872","createdAt":"13:28:04"},
+  {"id":"N1778732894223","content":"一致","parentId":"N1778732776872","createdAt":"13:28:14"},
+  {"id":"N1778732914354","content":"等しい","parentId":"N1778732776872","createdAt":"13:28:34"},
+  {"id":"N1778732931240","content":"直行","parentId":"N1778732776872","createdAt":"13:28:51"},
+  {"id":"N1778732942476","content":"固定","parentId":"N1778732776872","createdAt":"13:29:02"},
+  {"id":"N1778732951406","content":"中点","parentId":"N1778732776872","createdAt":"13:29:11"},
+  {"id":"N1778732970123","content":"同一線上","parentId":"N1778732776872","createdAt":"13:29:30"},
+  {"id":"N1778733009679","content":"並行","parentId":"N1778732776872","createdAt":"13:30:09"},
+  {"id":"N1778733108463","content":"寸法指定","parentId":"N1778732819878","createdAt":"13:31:48"},
+  {"id":"N1778733117116","content":"座標スナップ","parentId":"N1778732819878","createdAt":"13:31:57"}
+];
+
+// 拘束アイコン・色
+const C_META = {
+  "水平垂直":  { icon:"⊢", color:"#58a6ff", desc:"線分を水平または垂直に固定" },
+  "一致":      { icon:"⊙", color:"#3fb950", desc:"2点を同一座標に固定" },
+  "等しい":    { icon:"=",  color:"#bc8cff", desc:"2線分の長さを等しく強制" },
+  "直行":      { icon:"⊥", color:"#f78166", desc:"2線分を直角に固定" },
+  "固定":      { icon:"⚓", color:"#e3b341", desc:"点/線を現在位置に固定" },
+  "中点":      { icon:"◆", color:"#79c0ff", desc:"点を線分の中点に固定" },
+  "同一線上":  { icon:"⋯", color:"#ffa657", desc:"2線分を同一直線上に固定" },
+  "並行":      { icon:"∥", color:"#d2a8ff", desc:"2線分を平行に固定" },
+  "寸法指定":  { icon:"↔", color:"#e3b341", desc:"線分長を数値で指定" },
+  "座標スナップ":{ icon:"⊞", color:"#8b949e", desc:"グリッドにスナップ" }
+};
+
+// ══════════════════════════════════════════════
+//  状態
+// ══════════════════════════════════════════════
+let points = [];   // {id, x, y, fixed}
+let lines  = [];   // {id, p1, p2, dim, dimVal, constraints:[]}
+let appliedConstraints = [];  // {id, type, targets:[ids]}
+
+let tool = 'select';
+let snapOn = true;
+const SNAP = 20;
+
+let selectedIds = [];  // 選択中の id 配列
+let dimTarget = null;  // 寸法対象の線分 id
+
+// 線描画中の状態
+let drawingLine = false;
+let lineStart = null;  // {id} point id
+
+// view transform
+let vx = 0, vy = 0, vscale = 1;
+let panning = false, panStart = null;
+
+let nextId = 1;
+function gid() { return 'E' + (nextId++); }
+
+// ══════════════════════════════════════════════
+//  SVG要素
+// ══════════════════════════════════════════════
+const svg    = document.getElementById('canvas');
+const gDims  = document.getElementById('g-dims');
+const gLines = document.getElementById('g-lines');
+const gPts   = document.getElementById('g-points');
+const gTemp  = document.getElementById('g-temp');
+const gCon   = document.getElementById('g-constraints');
+const wrap   = document.getElementById('canvas-wrap');
+
+// ══════════════════════════════════════════════
+//  座標変換
+// ══════════════════════════════════════════════
+function svgPt(e) {
+  const r = svg.getBoundingClientRect();
+  let x = (e.clientX - r.left - vx) / vscale;
+  let y = (e.clientY - r.top  - vy) / vscale;
+  if (snapOn) { x = Math.round(x / SNAP) * SNAP; y = Math.round(y / SNAP) * SNAP; }
+  return {x, y};
+}
+function toScr(x, y) {
+  return { x: x*vscale + vx, y: y*vscale + vy };
+}
+function applyView() {
+  const t = `translate(${vx},${vy}) scale(${vscale})`;
+  gDims.setAttribute('transform', t);
+  gLines.setAttribute('transform', t);
+  gPts.setAttribute('transform', t);
+  gTemp.setAttribute('transform', t);
+  gCon.setAttribute('transform', t);
+  document.getElementById('origin').setAttribute('transform',
+    `translate(${vx},${vy}) scale(${vscale})`);
+}
+
+// ══════════════════════════════════════════════
+//  ツール
+// ══════════════════════════════════════════════
+function setTool(t) {
+  tool = t;
+  drawingLine = false;
+  lineStart = null;
+  gTemp.innerHTML = '';
+  selectedIds = [];
+  renderAll();
+  updateStatusBar();
+  updateUI();
+  document.querySelectorAll('.tb').forEach(b => b.classList.remove('active','active-green','active-yellow','active-purple','active-red'));
+  const map = { select:'tb-select', line:'tb-line', point:'tb-point', dim:'tb-dim' };
+  if (map[t]) document.getElementById(map[t])?.classList.add('active');
+}
+
+function toggleSnap() {
+  snapOn = !snapOn;
+  const btn = document.getElementById('tb-snap');
+  btn.classList.toggle('active', snapOn);
+  showTooltip(document.getElementById('tb-snap'), snapOn ? 'スナップ ON' : 'スナップ OFF');
+}
+
+// ══════════════════════════════════════════════
+//  ポイント操作
+// ══════════════════════════════════════════════
+function addPoint(x, y, fixed=false) {
+  const id = gid();
+  points.push({id, x, y, fixed});
+  renderPoint(id);
+  updateStatus();
+  return id;
+}
+
+function nearPoint(x, y, threshold=12) {
+  let best = null, bd = Infinity;
+  for (const p of points) {
+    const d = Math.hypot(p.x-x, p.y-y);
+    if (d < bd && d < threshold/vscale) { bd = d; best = p; }
+  }
+  return best;
+}
+
+function nearLine(x, y, threshold=8) {
+  let best = null, bd = Infinity;
+  for (const ln of lines) {
+    const p1 = points.find(p=>p.id===ln.p1);
+    const p2 = points.find(p=>p.id===ln.p2);
+    if (!p1||!p2) continue;
+    const d = distToSegment(x, y, p1.x, p1.y, p2.x, p2.y);
+    if (d < bd && d < threshold/vscale) { bd = d; best = ln; }
+  }
+  return best;
+}
+
+function distToSegment(px,py, ax,ay, bx,by) {
+  const dx=bx-ax, dy=by-ay;
+  const len2 = dx*dx+dy*dy;
+  if (len2===0) return Math.hypot(px-ax, py-ay);
+  let t = ((px-ax)*dx+(py-ay)*dy)/len2;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px-(ax+t*dx), py-(ay+t*dy));
+}
+
+function lineLength(ln) {
+  const p1 = points.find(p=>p.id===ln.p1);
+  const p2 = points.find(p=>p.id===ln.p2);
+  if (!p1||!p2) return 0;
+  return Math.hypot(p2.x-p1.x, p2.y-p1.y);
+}
+
+// ══════════════════════════════════════════════
+//  線分操作
+// ══════════════════════════════════════════════
+function addLine(p1id, p2id) {
+  const id = gid();
+  lines.push({id, p1:p1id, p2:p2id, dim:false, dimVal:0, constraints:[]});
+  renderLine(id);
+  updateStatus();
+  return id;
+}
+
+// ══════════════════════════════════════════════
+//  拘束適用
+// ══════════════════════════════════════════════
+function applyConstraint(type) {
+  // 選択要素が必要
+  if (selectedIds.length === 0) {
+    flashStatus('要素を選択してから拘束を適用してください');
+    return;
+  }
+
+  switch(type) {
+    case '水平垂直':   applyHV();       break;
+    case '一致':       applyCoincident(); break;
+    case '等しい':     applyEqual();     break;
+    case '直行':       applyPerp();      break;
+    case '並行':       applyParallel();  break;
+    case '中点':       applyMidpoint();  break;
+    case '同一線上':   applyCollinear(); break;
+    case '固定':       applyFixed();     break;
+    default: break;
+  }
+
+  renderAll();
+  updateAppliedList();
+  updateStatus();
+}
+
+// 水平垂直: 選択線分を水平or垂直に
+function applyHV() {
+  const ln = getSelectedLine();
+  if (!ln) { flashStatus('水平垂直: 線分を1本選択してください'); return; }
+  const p1 = points.find(p=>p.id===ln.p1);
+  const p2 = points.find(p=>p.id===ln.p2);
+  const dx = Math.abs(p2.x-p1.x), dy = Math.abs(p2.y-p1.y);
+  if (dx >= dy) {
+    // 水平化: p2.y = p1.y
+    if (!p1.fixed) p2.y = p1.y; else p1.y = p2.y;
+  } else {
+    // 垂直化: p2.x = p1.x
+    if (!p1.fixed) p2.x = p1.x; else p1.x = p2.x;
+  }
+  addApplied('水平垂直', [ln.id]);
+}
+
+// 一致: 2点を同一座標に
+function applyCoincident() {
+  const pts = selectedIds.map(id=>points.find(p=>p.id===id)).filter(Boolean);
+  if (pts.length < 2) { flashStatus('一致: 点を2つ選択してください'); return; }
+  const [a,b] = pts;
+  if (!a.fixed) { a.x=b.x; a.y=b.y; }
+  else if (!b.fixed) { b.x=a.x; b.y=a.y; }
+  addApplied('一致', [a.id, b.id]);
+}
+
+// 等しい: 2線分の長さを等しく
+function applyEqual() {
+  const lns = selectedIds.map(id=>lines.find(l=>l.id===id)).filter(Boolean);
+  if (lns.length < 2) { flashStatus('等しい: 線分を2本選択してください'); return; }
+  const [a,b] = lns;
+  const la = lineLength(a), lb = lineLength(b);
+  const avg = (la+lb)/2;
+  // bの長さをaに合わせる (p2を動かす)
+  scaleLineLength(b, la);
+  addApplied('等しい', [a.id, b.id]);
+}
+
+function scaleLineLength(ln, targetLen) {
+  const p1 = points.find(p=>p.id===ln.p1);
+  const p2 = points.find(p=>p.id===ln.p2);
+  if (!p1||!p2) return;
+  const cur = lineLength(ln);
+  if (cur===0) return;
+  const ratio = targetLen/cur;
+  if (!p2.fixed) {
+    p2.x = p1.x + (p2.x-p1.x)*ratio;
+    p2.y = p1.y + (p2.y-p1.y)*ratio;
+  }
+}
+
+// 直行: 2線分を90°
+function applyPerp() {
+  const lns = selectedIds.map(id=>lines.find(l=>l.id===id)).filter(Boolean);
+  if (lns.length < 2) { flashStatus('直行: 線分を2本選択してください'); return; }
+  const [a,b] = lns;
+  const p1a=points.find(p=>p.id===a.p1), p2a=points.find(p=>p.id===a.p2);
+  const p1b=points.find(p=>p.id===b.p1), p2b=points.find(p=>p.id===b.p2);
+  // aの方向ベクトルに垂直な方向へbを回転
+  const adx=p2a.x-p1a.x, ady=p2a.y-p1a.y;
+  const lb=lineLength(b);
+  if (!p2b.fixed) {
+    p2b.x = p1b.x + (-ady/Math.hypot(adx,ady))*lb;
+    p2b.y = p1b.y + ( adx/Math.hypot(adx,ady))*lb;
+  }
+  addApplied('直行', [a.id, b.id]);
+}
+
+// 並行: 2線分を平行に
+function applyParallel() {
+  const lns = selectedIds.map(id=>lines.find(l=>l.id===id)).filter(Boolean);
+  if (lns.length < 2) { flashStatus('並行: 線分を2本選択してください'); return; }
+  const [a,b] = lns;
+  const p1a=points.find(p=>p.id===a.p1), p2a=points.find(p=>p.id===a.p2);
+  const p1b=points.find(p=>p.id===b.p1), p2b=points.find(p=>p.id===b.p2);
+  const adx=p2a.x-p1a.x, ady=p2a.y-p1a.y;
+  const lb=lineLength(b);
+  const alen=Math.hypot(adx,ady);
+  if (alen===0||!p2b.fixed) {
+    p2b.x = p1b.x + (adx/alen)*lb;
+    p2b.y = p1b.y + (ady/alen)*lb;
+  }
+  addApplied('並行', [a.id, b.id]);
+}
+
+// 中点: 点を線分の中点に
+function applyMidpoint() {
+  const pt  = selectedIds.map(id=>points.find(p=>p.id===id)).filter(Boolean)[0];
+  const ln  = selectedIds.map(id=>lines.find(l=>l.id===id)).filter(Boolean)[0];
+  if (!pt||!ln) { flashStatus('中点: 点1つ + 線分1本を選択してください'); return; }
+  const p1=points.find(p=>p.id===ln.p1), p2=points.find(p=>p.id===ln.p2);
+  if (!pt.fixed) { pt.x=(p1.x+p2.x)/2; pt.y=(p1.y+p2.y)/2; }
+  addApplied('中点', [pt.id, ln.id]);
+}
+
+// 同一線上: 2線分を同一直線に
+function applyCollinear() {
+  const lns = selectedIds.map(id=>lines.find(l=>l.id===id)).filter(Boolean);
+  if (lns.length < 2) { flashStatus('同一線上: 線分を2本選択してください'); return; }
+  const [a,b] = lns;
+  const p1a=points.find(p=>p.id===a.p1), p2a=points.find(p=>p.id===a.p2);
+  const p1b=points.find(p=>p.id===b.p1), p2b=points.find(p=>p.id===b.p2);
+  // aの直線上にbの端点を射影
+  const ax=p1a.x,ay=p1a.y,dx=p2a.x-ax,dy=p2a.y-ay;
+  const len2=dx*dx+dy*dy;
+  [p1b,p2b].forEach(p=>{
+    if(!p.fixed&&len2>0){
+      const t=((p.x-ax)*dx+(p.y-ay)*dy)/len2;
+      p.x=ax+t*dx; p.y=ay+t*dy;
+    }
+  });
+  addApplied('同一線上', [a.id, b.id]);
+}
+
+// 固定: 選択要素を現在位置に固定
+function applyFixed() {
+  let cnt=0;
+  selectedIds.forEach(id=>{
+    const p=points.find(p=>p.id===id);
+    if(p){p.fixed=true;cnt++;}
+    const l=lines.find(l=>l.id===id);
+    if(l){
+      const a=points.find(p=>p.id===l.p1),b=points.find(p=>p.id===l.p2);
+      if(a)a.fixed=true; if(b)b.fixed=true; cnt++;
+    }
+  });
+  if(cnt===0){flashStatus('固定: 要素を選択してください');return;}
+  addApplied('固定', [...selectedIds]);
+}
+
+function addApplied(type, targets) {
+  appliedConstraints.push({ id:gid(), type, targets });
+}
+function getSelectedLine() {
+  for(const id of selectedIds){ const l=lines.find(l=>l.id===id); if(l)return l; } return null;
+}
+
+// ══════════════════════════════════════════════
+//  寸法拘束
+// ══════════════════════════════════════════════
+function startDimOnLine(ln) {
+  dimTarget = ln.id;
+  document.getElementById('dim-ctrl').style.display = '';
+  document.getElementById('dc-id').textContent = ln.id;
+  document.getElementById('dc-cur').textContent = lineLength(ln).toFixed(1) + ' px';
+  document.getElementById('dc-val').value = ln.dim ? ln.dimVal : Math.round(lineLength(ln));
+  document.getElementById('dc-val').focus();
+}
+
+function applyDimension() {
+  if (!dimTarget) return;
+  const ln = lines.find(l=>l.id===dimTarget);
+  if (!ln) return;
+  const val = parseFloat(document.getElementById('dc-val').value);
+  if (isNaN(val)||val<=0) { flashStatus('有効な数値を入力してください'); return; }
+  ln.dim = true;
+  ln.dimVal = val;
+  scaleLineLength(ln, val);
+  addApplied('寸法指定', [ln.id]);
+  document.getElementById('dc-cur').textContent = lineLength(ln).toFixed(1) + ' px';
+  renderAll();
+  updateAppliedList();
+  updateStatus();
+}
+
+function removeDimension() {
+  if (!dimTarget) return;
+  const ln = lines.find(l=>l.id===dimTarget);
+  if (!ln) return;
+  ln.dim = false; ln.dimVal = 0;
+  dimTarget = null;
+  document.getElementById('dim-ctrl').style.display = 'none';
+  renderAll(); updateAppliedList();
+}
+
+// ポップアップ寸法入力 (キャンバス上でD押し + 線クリック)
+let dimPopupTarget = null;
+function showDimPopup(ln, ex, ey) {
+  dimPopupTarget = ln.id;
+  const popup = document.getElementById('dim-popup');
+  popup.style.display = '';
+  popup.style.left = (ex+10)+'px';
+  popup.style.top  = (ey-40)+'px';
+  const inp = document.getElementById('dim-input');
+  inp.value = ln.dim ? ln.dimVal : Math.round(lineLength(ln));
+  inp.focus(); inp.select();
+}
+function hideDimPopup() {
+  document.getElementById('dim-popup').style.display='none';
+  dimPopupTarget=null;
+}
+document.getElementById('dim-input').addEventListener('keydown', e=>{
+  if(e.key==='Enter'){
+    if(!dimPopupTarget) return;
+    const ln=lines.find(l=>l.id===dimPopupTarget);
+    const val=parseFloat(e.target.value);
+    if(ln&&!isNaN(val)&&val>0){
+      ln.dim=true; ln.dimVal=val;
+      scaleLineLength(ln,val);
+      addApplied('寸法指定',[ln.id]);
+      renderAll(); updateAppliedList(); updateStatus();
+    }
+    hideDimPopup();
+  }
+  if(e.key==='Escape') hideDimPopup();
+  e.stopPropagation();
+});
+
+// ══════════════════════════════════════════════
+//  レンダリング
+// ══════════════════════════════════════════════
+function renderAll() {
+  gDims.innerHTML=''; gLines.innerHTML=''; gPts.innerHTML=''; gCon.innerHTML='';
+  lines.forEach(l=>renderLine(l.id));
+  points.forEach(p=>renderPoint(p.id));
+  renderConstraintMarks();
+  renderDimensions();
+}
+
+function renderLine(id) {
+  const ln = lines.find(l=>l.id===id);
+  if (!ln) return;
+  const p1=points.find(p=>p.id===ln.p1), p2=points.find(p=>p.id===ln.p2);
+  if (!p1||!p2) return;
+  const sel = selectedIds.includes(id);
+
+  const line = document.createElementNS('http://www.w3.org/2000/svg','line');
+  line.setAttribute('x1',p1.x); line.setAttribute('y1',p1.y);
+  line.setAttribute('x2',p2.x); line.setAttribute('y2',p2.y);
+  line.setAttribute('stroke', sel ? '#58a6ff' : (ln.dim ? '#f0c860' : '#8b949e'));
+  line.setAttribute('stroke-width', sel ? 2/vscale : 1.5/vscale);
+  line.setAttribute('stroke-linecap','round');
+  line.setAttribute('cursor','pointer');
+  line.setAttribute('data-id', id);
+  line.addEventListener('mousedown', ev=>onLineDown(ev, ln));
+  gLines.appendChild(line);
+
+  // 寸法ハイライト枠
+  if (ln.dim) {
+    const hi = document.createElementNS('http://www.w3.org/2000/svg','line');
+    hi.setAttribute('x1',p1.x); hi.setAttribute('y1',p1.y);
+    hi.setAttribute('x2',p2.x); hi.setAttribute('y2',p2.y);
+    hi.setAttribute('stroke','#e3b341'); hi.setAttribute('stroke-width',4/vscale);
+    hi.setAttribute('stroke-linecap','round'); hi.setAttribute('opacity','.15');
+    hi.setAttribute('pointer-events','none');
+    gLines.insertBefore(hi, line);
+  }
+}
+
+function renderPoint(id) {
+  const pt = points.find(p=>p.id===id);
+  if (!pt) return;
+  const sel = selectedIds.includes(id);
+
+  const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+  g.setAttribute('cursor','pointer');
+  g.setAttribute('data-id',id);
+
+  const r = 5/vscale;
+  const c = document.createElementNS('http://www.w3.org/2000/svg','circle');
+  c.setAttribute('cx',pt.x); c.setAttribute('cy',pt.y); c.setAttribute('r',r);
+  c.setAttribute('fill', sel ? '#388bfd' : (pt.fixed ? '#e3b341' : '#21262d'));
+  c.setAttribute('stroke', sel ? '#79c0ff' : (pt.fixed ? '#e3b341' : '#8b949e'));
+  c.setAttribute('stroke-width', 1.5/vscale);
+  g.appendChild(c);
+
+  // 固定マーク
+  if (pt.fixed) {
+    const cross1 = document.createElementNS('http://www.w3.org/2000/svg','line');
+    cross1.setAttribute('x1',pt.x-r); cross1.setAttribute('y1',pt.y-r);
+    cross1.setAttribute('x2',pt.x+r); cross1.setAttribute('y2',pt.y+r);
+    cross1.setAttribute('stroke','#e3b341'); cross1.setAttribute('stroke-width',1/vscale);
+    cross1.setAttribute('pointer-events','none');
+    const cross2 = document.createElementNS('http://www.w3.org/2000/svg','line');
+    cross2.setAttribute('x1',pt.x+r); cross2.setAttribute('y1',pt.y-r);
+    cross2.setAttribute('x2',pt.x-r); cross2.setAttribute('y2',pt.y+r);
+    cross2.setAttribute('stroke','#e3b341'); cross2.setAttribute('stroke-width',1/vscale);
+    cross2.setAttribute('pointer-events','none');
+    g.appendChild(cross1); g.appendChild(cross2);
+  }
+
+  g.addEventListener('mousedown', ev=>onPointDown(ev,pt));
+  gPts.appendChild(g);
+}
+
+function renderConstraintMarks() {
+  const done = new Set();
+  appliedConstraints.forEach(ac=>{
+    const meta = C_META[ac.type];
+    if (!meta) return;
+    ac.targets.forEach(tid=>{
+      if (done.has(tid+ac.type)) return;
+      done.add(tid+ac.type);
+      const ln=lines.find(l=>l.id===tid);
+      const pt=points.find(p=>p.id===tid);
+      let cx=0,cy=0;
+      if(ln){const p1=points.find(p=>p.id===ln.p1),p2=points.find(p=>p.id===ln.p2);if(p1&&p2){cx=(p1.x+p2.x)/2;cy=(p1.y+p2.y)/2;}}
+      if(pt){cx=pt.x;cy=pt.y;}
+      const txt=document.createElementNS('http://www.w3.org/2000/svg','text');
+      txt.setAttribute('x',cx+6/vscale); txt.setAttribute('y',cy-6/vscale);
+      txt.setAttribute('font-size',10/vscale+'px');
+      txt.setAttribute('fill',meta.color);
+      txt.setAttribute('pointer-events','none');
+      txt.setAttribute('font-family','monospace');
+      txt.textContent=meta.icon;
+      gCon.appendChild(txt);
+    });
+  });
+}
+
+function renderDimensions() {
+  lines.forEach(ln=>{
+    if (!ln.dim) return;
+    const p1=points.find(p=>p.id===ln.p1), p2=points.find(p=>p.id===ln.p2);
+    if (!p1||!p2) return;
+    const mx=(p1.x+p2.x)/2, my=(p1.y+p2.y)/2;
+    const dx=p2.x-p1.x, dy=p2.y-p1.y;
+    const len=Math.hypot(dx,dy)||1;
+    const nx=-dy/len, ny=dx/len;
+    const off=18/vscale;
+    // 寸法線
+    const dl=document.createElementNS('http://www.w3.org/2000/svg','line');
+    dl.setAttribute('x1',p1.x+nx*off); dl.setAttribute('y1',p1.y+ny*off);
+    dl.setAttribute('x2',p2.x+nx*off); dl.setAttribute('y2',p2.y+ny*off);
+    dl.setAttribute('stroke','#e3b341'); dl.setAttribute('stroke-width',1/vscale);
+    dl.setAttribute('marker-end','url(#arr-dim)');
+    dl.setAttribute('pointer-events','none');
+    gDims.appendChild(dl);
+    // 補助線
+    [[p1,p2]].forEach(()=>{
+      [p1,p2].forEach(pt=>{
+        const el=document.createElementNS('http://www.w3.org/2000/svg','line');
+        el.setAttribute('x1',pt.x); el.setAttribute('y1',pt.y);
+        el.setAttribute('x2',pt.x+nx*off*1.2); el.setAttribute('y2',pt.y+ny*off*1.2);
+        el.setAttribute('stroke','#e3b341'); el.setAttribute('stroke-width',.5/vscale);
+        el.setAttribute('stroke-dasharray',`${3/vscale},${3/vscale}`);
+        el.setAttribute('pointer-events','none');
+        gDims.appendChild(el);
+      });
+    });
+    // 数値ラベル
+    const txt=document.createElementNS('http://www.w3.org/2000/svg','text');
+    txt.setAttribute('x',mx+nx*(off+10/vscale)); txt.setAttribute('y',my+ny*(off+10/vscale));
+    txt.setAttribute('font-size',11/vscale+'px');
+    txt.setAttribute('fill','#e3b341'); txt.setAttribute('text-anchor','middle');
+    txt.setAttribute('dominant-baseline','middle');
+    txt.setAttribute('font-family','IBM Plex Mono, monospace');
+    txt.setAttribute('pointer-events','none');
+    txt.textContent = ln.dimVal.toFixed(1);
+    gDims.appendChild(txt);
+  });
+}
+
+// ══════════════════════════════════════════════
+//  マウスイベント
+// ══════════════════════════════════════════════
+let draggingPt = null, dragOff = null;
+
+function onPointDown(e, pt) {
+  e.stopPropagation();
+  if (tool==='line') {
+    if (!drawingLine) {
+      drawingLine=true; lineStart=pt.id;
+      updateStatusBar('終点をクリック or 新規点');
+    } else {
+      if (pt.id !== lineStart) { addLine(lineStart, pt.id); }
+      drawingLine=false; lineStart=null; gTemp.innerHTML='';
+      updateStatusBar();
+    }
+    return;
+  }
+  if (tool==='select') {
+    const i = selectedIds.indexOf(pt.id);
+    if (e.shiftKey) {
+      if (i===-1) selectedIds.push(pt.id); else selectedIds.splice(i,1);
+    } else { selectedIds=[pt.id]; }
+    renderAll(); updateSelInfo();
+    if (!pt.fixed) {
+      draggingPt=pt;
+      const p=rawSvgPt(e);
+      dragOff={x:p.x-pt.x, y:p.y-pt.y};
+    }
+    return;
+  }
+}
+
+function onLineDown(e, ln) {
+  e.stopPropagation();
+  if (tool==='dim') {
+    startDimOnLine(ln);
+    showDimPopup(ln, e.clientX, e.clientY);
+    return;
+  }
+  if (tool==='select') {
+    const i=selectedIds.indexOf(ln.id);
+    if(e.shiftKey){if(i===-1)selectedIds.push(ln.id);else selectedIds.splice(i,1);}
+    else selectedIds=[ln.id];
+    dimTarget=ln.id;
+    startDimOnLine(ln);
+    renderAll(); updateSelInfo();
+  }
+}
+
+function rawSvgPt(e) {
+  const r=svg.getBoundingClientRect();
+  return {x:(e.clientX-r.left-vx)/vscale, y:(e.clientY-r.top-vy)/vscale};
+}
+
+svg.addEventListener('mousemove', e=>{
+  if (draggingPt) {
+    const p=rawSvgPt(e);
+    let nx=p.x-dragOff.x, ny=p.y-dragOff.y;
+    if(snapOn){nx=Math.round(nx/SNAP)*SNAP; ny=Math.round(ny/SNAP)*SNAP;}
+    draggingPt.x=nx; draggingPt.y=ny;
+    renderAll(); return;
+  }
+  if (panning && panStart) {
+    vx+=e.clientX-panStart.x; vy+=e.clientY-panStart.y;
+    panStart={x:e.clientX,y:e.clientY};
+    applyView(); return;
+  }
+  if (tool==='line' && drawingLine) {
+    const p=svgPt(e);
+    gTemp.innerHTML='';
+    const sp=points.find(pt=>pt.id===lineStart);
+    if(!sp) return;
+    const tl=document.createElementNS('http://www.w3.org/2000/svg','line');
+    tl.setAttribute('x1',sp.x); tl.setAttribute('y1',sp.y);
+    tl.setAttribute('x2',p.x); tl.setAttribute('y2',p.y);
+    tl.setAttribute('stroke','#388bfd'); tl.setAttribute('stroke-width',1.5/vscale);
+    tl.setAttribute('stroke-dasharray',`${5/vscale},${4/vscale}`);
+    tl.setAttribute('pointer-events','none');
+    gTemp.appendChild(tl);
+    const tc=document.createElementNS('http://www.w3.org/2000/svg','circle');
+    tc.setAttribute('cx',p.x); tc.setAttribute('cy',p.y); tc.setAttribute('r',4/vscale);
+    tc.setAttribute('fill','none'); tc.setAttribute('stroke','#388bfd'); tc.setAttribute('stroke-width',1/vscale);
+    tc.setAttribute('pointer-events','none');
+    gTemp.appendChild(tc);
+  }
+});
+
+svg.addEventListener('mouseup', e=>{
+  draggingPt=null; dragOff=null;
+});
+
+wrap.addEventListener('mousedown', e=>{
+  if (e.target===svg||e.target.id==='grid-rect'||e.target.closest('#g-dims')) {
+    if (e.button===1||(e.button===0&&e.altKey)) {
+      panning=true; panStart={x:e.clientX,y:e.clientY}; return;
+    }
+    const p=svgPt(e);
+    if (tool==='point') {
+      addPoint(p.x, p.y);
+    } else if (tool==='line') {
+      if (!drawingLine) {
+        const near=nearPoint(p.x,p.y);
+        const pid = near ? near.id : addPoint(p.x,p.y);
+        drawingLine=true; lineStart=pid;
+        updateStatusBar('終点をクリック');
+      } else {
+        const near=nearPoint(p.x,p.y);
+        const pid = near ? near.id : addPoint(p.x,p.y);
+        if(pid!==lineStart) addLine(lineStart,pid);
+        drawingLine=false; lineStart=null; gTemp.innerHTML='';
+        updateStatusBar();
+      }
+    } else if (tool==='select') {
+      if(!e.shiftKey){selectedIds=[]; dimTarget=null;
+        document.getElementById('dim-ctrl').style.display='none';
+        document.getElementById('elem-info').style.display='none';}
+      renderAll(); updateSelInfo();
+    } else if (tool==='dim') {
+      const near=nearLine(p.x,p.y);
+      if(near) { startDimOnLine(near); showDimPopup(near,e.clientX,e.clientY); }
+    }
+  }
+});
+
+wrap.addEventListener('mouseup', ()=>{
+  panning=false; panStart=null;
+  draggingPt=null; dragOff=null;
+});
+
+wrap.addEventListener('wheel', e=>{
+  e.preventDefault();
+  const d=e.deltaY>0?.88:1.12;
+  const r=svg.getBoundingClientRect();
+  const mx=e.clientX-r.left, my=e.clientY-r.top;
+  vx=mx-(mx-vx)*d; vy=my-(my-vy)*d;
+  vscale=Math.max(.1,Math.min(8,vscale*d));
+  applyView(); renderAll();
+},{passive:false});
+
+// ══════════════════════════════════════════════
+//  キーボード
+// ══════════════════════════════════════════════
+document.addEventListener('keydown', e=>{
+  if(e.target.tagName==='INPUT') return;
+  switch(e.key.toLowerCase()){
+    case 's': setTool('select'); break;
+    case 'l': setTool('line'); break;
+    case 'p': setTool('point'); break;
+    case 'd': setTool('dim'); break;
+    case 'g': toggleSnap(); break;
+    case 'h': applyConstraint('水平垂直'); break;
+    case 'c': applyConstraint('一致'); break;
+    case 'e': applyConstraint('等しい'); break;
+    case 'r': applyConstraint('直行'); break;
+    case 'a': applyConstraint('並行'); break;
+    case 'm': applyConstraint('中点'); break;
+    case 'o': applyConstraint('同一線上'); break;
+    case 'f': applyConstraint('固定'); break;
+    case 'delete': case 'backspace': deleteSelected(); break;
+    case 'escape':
+      drawingLine=false; lineStart=null; gTemp.innerHTML='';
+      hideDimPopup();
+      if(tool!=='select') setTool('select');
+      selectedIds=[]; renderAll(); updateSelInfo();
+      break;
+  }
+});
+
+// ══════════════════════════════════════════════
+//  削除
+// ══════════════════════════════════════════════
+function deleteSelected() {
+  selectedIds.forEach(id=>{
+    lines = lines.filter(l=>l.id!==id);
+    const ptIdx=points.findIndex(p=>p.id===id);
+    if(ptIdx!==-1){
+      const pt=points[ptIdx];
+      lines=lines.filter(l=>l.p1!==id&&l.p2!==id);
+      points.splice(ptIdx,1);
+    }
+  });
+  appliedConstraints=appliedConstraints.filter(ac=>
+    !ac.targets.some(t=>selectedIds.includes(t))
+  );
+  selectedIds=[]; dimTarget=null;
+  document.getElementById('dim-ctrl').style.display='none';
+  renderAll(); updateAppliedList(); updateStatus();
+}
+
+function clearAll() {
+  if(!confirm('全て消去しますか？')) return;
+  points=[]; lines=[]; appliedConstraints=[]; selectedIds=[];
+  dimTarget=null;
+  document.getElementById('dim-ctrl').style.display='none';
+  renderAll(); updateAppliedList(); updateStatus();
+}
+
+// ══════════════════════════════════════════════
+//  UI 更新
+// ══════════════════════════════════════════════
+function updateStatus() {
+  document.getElementById('st-pts').textContent='点: '+points.length;
+  document.getElementById('st-lns').textContent='線: '+lines.length;
+  document.getElementById('st-dim').textContent='寸法: '+lines.filter(l=>l.dim).length;
+  document.getElementById('st-con').textContent='拘束: '+appliedConstraints.length;
+}
+function updateStatusBar(msg) {
+  const modes = {select:'SELECT',line:'LINE',point:'POINT',dim:'DIM'};
+  document.getElementById('st-mode').textContent = msg || modes[tool] || tool.toUpperCase();
+}
+function updateUI() { updateStatusBar(); }
+
+function updateSelInfo() {
+  const ei=document.getElementById('elem-info');
+  const eis=document.getElementById('elem-info-content');
+  if(selectedIds.length===0){ei.style.display='none';
+    document.getElementById('sel-info').style.display='';
+    return;
+  }
+  document.getElementById('sel-info').style.display='none';
+  ei.style.display='';
+  let html='';
+  selectedIds.forEach(id=>{
+    const pt=points.find(p=>p.id===id);
+    const ln=lines.find(l=>l.id===id);
+    if(pt) html+=`<div style="font-family:var(--mono);font-size:10px;color:var(--txt-mute);margin-bottom:4px">
+      <b style="color:var(--accent2)">点</b> ${id}<br>
+      x:${pt.x.toFixed(1)} y:${pt.y.toFixed(1)}<br>
+      ${pt.fixed?'<span style="color:var(--yellow)">⚓ 固定</span>':''}
+    </div>`;
+    if(ln){
+      const p1=points.find(p=>p.id===ln.p1),p2=points.find(p=>p.id===ln.p2);
+      html+=`<div style="font-family:var(--mono);font-size:10px;color:var(--txt-mute);margin-bottom:4px">
+        <b style="color:var(--accent)">線分</b> ${id}<br>
+        L:${lineLength(ln).toFixed(1)} px<br>
+        ${ln.dim?`<span style="color:var(--yellow)">↔ 寸法:${ln.dimVal}</span>`:''}
+      </div>`;
+    }
+  });
+  eis.innerHTML=html;
+}
+
+function updateAppliedList() {
+  const el=document.getElementById('applied-list');
+  if(appliedConstraints.length===0){el.textContent='なし';return;}
+  el.innerHTML=appliedConstraints.map(ac=>{
+    const m=C_META[ac.type]||{};
+    return `<div style="display:flex;align-items:center;gap:5px;padding:2px 0;border-bottom:1px solid var(--border)">
+      <span style="color:${m.color||'#8b949e'}">${m.icon||'?'}</span>
+      <span style="color:var(--txt)">${ac.type}</span>
+    </div>`;
+  }).join('');
+}
+
+// ── 左パネル 拘束リスト生成 ──
+function buildConstraintList() {
+  const list = document.getElementById('constraint-list');
+  list.innerHTML='';
+  const roots = CONSTRAINT_SPEC.filter(s=>!s.parentId);
+  roots.forEach(root=>{
+    // グループヘッダ
+    const hd=document.createElement('div');
+    hd.style.cssText='font-family:var(--mono);font-size:9px;color:var(--txt-dim);letter-spacing:.1em;padding:8px 12px 3px;text-transform:uppercase;';
+    hd.textContent=root.content;
+    list.appendChild(hd);
+    // 子アイテム
+    CONSTRAINT_SPEC.filter(s=>s.parentId===root.id).forEach(child=>{
+      const meta=C_META[child.content]||{icon:'?',color:'#8b949e',desc:''};
+      const div=document.createElement('div');
+      div.className='c-item';
+      div.title=meta.desc;
+      div.innerHTML=`<span class="c-icon" style="color:${meta.color}">${meta.icon}</span>
+        <span class="c-name">${child.content}</span>`;
+      // 結線機能グループは特別処理
+      if(root.content==='結線機能'){
+        if(child.content==='寸法指定') div.onclick=()=>setTool('dim');
+        if(child.content==='座標スナップ') div.onclick=()=>toggleSnap();
+      } else {
+        div.onclick=()=>applyConstraint(child.content);
+      }
+      list.appendChild(div);
+    });
+  });
+}
+
+// ══════════════════════════════════════════════
+//  フラッシュ / ツールチップ
+// ══════════════════════════════════════════════
+function flashStatus(msg) {
+  const el=document.getElementById('st-mode');
+  const orig=el.textContent;
+  el.style.color='var(--warn)'; el.textContent=msg;
+  setTimeout(()=>{ el.style.color='var(--accent)'; el.textContent=orig; },2000);
+}
+function showTooltip(el, msg) {
+  const t=document.getElementById('tooltip');
+  const r=el.getBoundingClientRect();
+  t.textContent=msg; t.style.display='';
+  t.style.left=(r.left+r.width/2-t.offsetWidth/2)+'px';
+  t.style.top=(r.bottom+4)+'px';
+  setTimeout(()=>t.style.display='none',1500);
+}
+
+// ══════════════════════════════════════════════
+//  エクスポート
+// ══════════════════════════════════════════════
+function exportSketch() {
+  const data = {
+    points: points.map(p=>({id:p.id,x:Math.round(p.x),y:Math.round(p.y),fixed:p.fixed})),
+    lines: lines.map(l=>({id:l.id,p1:l.p1,p2:l.p2,dim:l.dim,dimVal:l.dimVal})),
+    constraints: appliedConstraints
+  };
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob); a.download='sketch.json'; a.click();
+}
+
+// ══════════════════════════════════════════════
+//  初期化
+// ══════════════════════════════════════════════
+function init() {
+  buildConstraintList();
+  // キャンバス中央を原点に
+  const w=wrap.clientWidth, h=wrap.clientHeight;
+  vx=w/2; vy=h/2;
+  applyView();
+  setTool('select');
+  toggleSnap(); // 初期ON
+
+  // サンプルスケッチ (小さな正方形)
+  const a=addPoint(-60,-60);
+  const b=addPoint( 60,-60);
+  const c=addPoint( 60, 60);
+  const d=addPoint(-60, 60);
+  addLine(a,b); addLine(b,c); addLine(c,d); addLine(d,a);
+  updateStatus();
+}
+
+window.addEventListener('load', init);
+</script>
+</body>
+</html>

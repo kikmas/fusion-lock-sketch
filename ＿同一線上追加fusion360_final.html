@@ -1,0 +1,1439 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>Fusion 360 Sketch</title>
+<style>
+:root {
+  --bg:       #1c1c1c;
+  --canvas:   #1a1a1a;
+  --panel:    #242424;
+  --panel2:   #2c2c2c;
+  --border:   #333;
+  --border2:  #444;
+  --txt:      #d4d4d4;
+  --txt2:     #888;
+  --txt3:     #555;
+  --blue:     #0696d7;
+  --blue2:    #1ab0f5;
+  --yellow:   #ffcc00;
+  --orange:   #ff9900;
+  --green:    #3fb950;
+  --red:      #e74c3c;
+  --purple:   #a78bfa;
+  --ln-free:  #4db8ff;   /* 未拘束線 */
+  --ln-con:   #3fb950;   /* 完全拘束線 */
+  --ln-over:  #e74c3c;   /* 過剰拘束 */
+  --ln-sel:   #ffcc00;   /* 選択 */
+  --pt-free:  #4db8ff;
+  --pt-fix:   #ff9900;
+  --pt-sel:   #ffcc00;
+  --dim-col:  #ffaa00;
+  --con-col:  #88cc88;
+  --parent-edge: #a78bfa;  /* 親子関係エッジ */
+  --font: 'Segoe UI', system-ui, sans-serif;
+  --mono: 'Cascadia Code', 'Consolas', monospace;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--txt);font-family:var(--font);font-size:12px;user-select:none}
+
+/* ── TITLE BAR ── */
+#tb{height:30px;background:#111;display:flex;align-items:center;padding:0 12px;gap:8px;border-bottom:1px solid #000;flex-shrink:0}
+#tb .logo{width:20px;height:20px;background:var(--blue);border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;flex-shrink:0}
+#tb .title{font-size:11px;color:var(--txt2);flex:1}
+#tb .title b{color:var(--txt)}
+
+/* ── RIBBON ── */
+#ribbon{background:var(--panel);border-bottom:2px solid var(--blue);flex-shrink:0}
+#rtabs{display:flex;background:#1a1a1a;padding:0 8px}
+.rtab{padding:5px 14px;font-size:11px;color:var(--txt2);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px}
+.rtab.on{color:var(--blue);border-bottom-color:var(--blue);background:var(--panel)}
+#rbody{display:flex;align-items:stretch;padding:3px 6px;gap:1px;min-height:62px}
+.rg{display:flex;flex-direction:column;padding:0 6px;border-right:1px solid var(--border)}
+.rg:last-child{border-right:none}
+.rg-btns{display:flex;gap:2px;align-items:center;flex:1}
+.rg-lbl{font-size:9px;color:var(--txt3);text-align:center;padding:2px 0;text-transform:uppercase;letter-spacing:.04em}
+.rb{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:4px 7px;cursor:pointer;border-radius:3px;border:1px solid transparent;min-width:42px;min-height:44px;background:transparent;color:var(--txt);transition:all .1s}
+.rb:hover{background:#353535;border-color:var(--border2)}
+.rb.on{background:rgba(6,150,215,.2);border-color:var(--blue);color:#fff}
+.rb .ic{font-size:17px;line-height:1}
+.rb .lb{font-size:9px;color:var(--txt2);white-space:nowrap}
+.rb.on .lb{color:#aadcf5}
+.rb.sm{min-width:34px;min-height:30px;padding:3px 5px;flex-direction:row;gap:4px}
+.rb.sm .ic{font-size:13px}
+.rb.sm .lb{font-size:10px}
+.rsep{width:1px;background:var(--border);margin:4px 2px;align-self:stretch}
+
+/* ── LAYOUT ── */
+#app{flex:1;display:flex;overflow:hidden;position:relative}
+
+/* ── LEFT BAR ── */
+#lbar{width:34px;background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;padding:5px 0;gap:2px;flex-shrink:0}
+.lb2{width:26px;height:26px;display:flex;align-items:center;justify-content:center;border-radius:3px;cursor:pointer;color:var(--txt2);font-size:13px;border:1px solid transparent;transition:all .1s}
+.lb2:hover{background:#353535;color:var(--txt)}
+.lb2.on{background:rgba(6,150,215,.2);color:var(--blue);border-color:var(--blue)}
+.lb2-sep{width:18px;height:1px;background:var(--border);margin:2px 0}
+
+/* ── CANVAS ── */
+#cw{flex:1;position:relative;overflow:hidden;background:var(--canvas)}
+#cw.cr-cross{cursor:crosshair}
+#cw.cr-move{cursor:move}
+#cw.cr-grab{cursor:grab}
+#cw.cr-grabbing{cursor:grabbing}
+#cw.cr-text{cursor:text}
+#cv{width:100%;height:100%;display:block}
+
+/* ── RIGHT PANEL ── */
+#rp{width:236px;background:var(--panel);border-left:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;flex-shrink:0}
+.rp-tabs{display:flex;background:#1a1a1a;border-bottom:1px solid var(--border)}
+.rp-tab{flex:1;padding:5px 4px;font-size:10px;text-align:center;color:var(--txt3);cursor:pointer;border-bottom:2px solid transparent}
+.rp-tab.on{color:var(--blue);border-bottom-color:var(--blue)}
+.rp-sec{border-bottom:1px solid var(--border);flex-shrink:0}
+.rp-head{padding:5px 10px;background:var(--panel2);font-size:11px;font-weight:500;display:flex;align-items:center;gap:5px;cursor:pointer}
+.rp-head .arr{font-size:9px;color:var(--txt3)}
+.rp-body{padding:6px 10px}
+.prop{display:flex;align-items:center;padding:2px 0;border-bottom:1px solid #2a2a2a;gap:4px}
+.pk{font-size:10px;color:var(--txt2);width:64px;flex-shrink:0}
+.pv{font-size:10px;color:var(--txt);flex:1;font-family:var(--mono)}
+.rp-scroll{overflow-y:auto;flex:1}
+
+/* 親子関係ツリー */
+.tree-node{display:flex;align-items:center;gap:4px;padding:3px 6px;font-size:11px;border-radius:2px;cursor:pointer;transition:background .1s}
+.tree-node:hover{background:#2e2e2e}
+.tree-node.sel{background:rgba(6,150,215,.15);color:var(--blue)}
+.tree-indent{width:14px;flex-shrink:0}
+.tree-icon{width:16px;text-align:center;flex-shrink:0;font-size:11px}
+.tree-line{position:relative}
+.tree-line::before{content:'';position:absolute;left:-8px;top:50%;width:6px;height:1px;background:var(--border2)}
+.tree-exp{color:var(--txt3);font-size:9px;cursor:pointer;padding:0 2px}
+
+/* 統計 */
+#stats{display:grid;grid-template-columns:1fr 1fr;gap:3px;padding:6px 10px;border-top:1px solid var(--border);font-size:10px;color:var(--txt3);font-family:var(--mono)}
+#stats span{color:var(--txt2)}
+
+/* ── BOTTOM BAR ── */
+#bb{height:22px;background:var(--panel);border-top:1px solid var(--border);display:flex;align-items:center;padding:0 10px;gap:14px;flex-shrink:0;font-size:10px;color:var(--txt3)}
+#bb .bv{color:var(--txt2);font-family:var(--mono)}
+#bb-hint{margin-left:auto;color:var(--blue);font-size:10px}
+
+/* ── 矩形選択 ── */
+#sbox{position:absolute;border:1px solid var(--blue);background:rgba(6,150,215,.06);pointer-events:none;display:none}
+
+/* ── 座標表示 ── */
+#coord{position:absolute;bottom:6px;right:6px;background:rgba(0,0,0,.7);border:1px solid #333;border-radius:3px;padding:2px 8px;font-family:var(--mono);font-size:10px;color:#666;pointer-events:none}
+
+/* ── キャンバス内寸法INPUT ── */
+.dim-edit{
+  position:absolute;
+  background:#1a1100;
+  border:1.5px solid var(--dim-col);
+  border-radius:3px;
+  color:var(--dim-col);
+  font-family:var(--mono);
+  font-size:13px;
+  font-weight:500;
+  padding:3px 7px;
+  outline:none;
+  min-width:70px;
+  text-align:center;
+  z-index:200;
+  box-shadow:0 2px 12px rgba(255,170,0,.25);
+}
+.dim-edit:focus{border-color:#ffcc00;box-shadow:0 2px 16px rgba(255,200,0,.35)}
+
+/* ── tooltip ── */
+#tip{position:fixed;background:#111;border:1px solid #333;color:var(--txt);font-size:11px;padding:4px 8px;border-radius:3px;pointer-events:none;z-index:1000;display:none;line-height:1.5}
+#tip kbd{background:#222;border:1px solid #444;border-radius:2px;padding:0 4px;font-size:9px;font-family:var(--mono);color:var(--txt2)}
+
+/* ── 拘束状態バッジ ── */
+.badge{display:inline-flex;align-items:center;gap:3px;padding:1px 5px;border-radius:2px;font-size:9px;font-family:var(--mono)}
+.badge-free{background:rgba(77,184,255,.12);color:var(--ln-free)}
+.badge-full{background:rgba(63,185,80,.12);color:var(--ln-con)}
+.badge-over{background:rgba(231,76,60,.12);color:var(--ln-over)}
+.badge-dim{background:rgba(255,170,0,.12);color:var(--dim-col)}
+</style>
+</head>
+<body style="display:flex;flex-direction:column;height:100vh">
+
+<!-- TITLE BAR -->
+<div id="tb">
+  <div class="logo">A</div>
+  <div class="title">Autodesk Fusion 360 &nbsp;—&nbsp; <b>Sketch [スケッチ]</b></div>
+</div>
+
+<!-- RIBBON -->
+<div id="ribbon">
+  <div id="rtabs">
+    <div class="rtab on">スケッチ</div>
+    <div class="rtab">ソリッド</div>
+    <div class="rtab">サーフェス</div>
+    <div class="rtab">ツール</div>
+  </div>
+  <div id="rbody">
+
+    <div class="rg">
+      <div class="rg-btns">
+        <div class="rb" id="rb-line" onclick="setTool('line')" data-tip="線分を描画<kbd>L</kbd>">
+          <div class="ic">╱</div><div class="lb">線分</div>
+        </div>
+        <div class="rb" id="rb-pt" onclick="setTool('point')" data-tip="点を配置<kbd>P</kbd>">
+          <div class="ic">·</div><div class="lb">点</div>
+        </div>
+      </div>
+      <div class="rg-lbl">作成</div>
+    </div>
+
+    <div class="rsep"></div>
+
+    <div class="rg">
+      <div class="rg-btns">
+        <div class="rb sm" id="rb-hv"  onclick="applyC('水平垂直')"  data-tip="水平/垂直拘束<kbd>H</kbd>"><div class="ic">⊢</div><div class="lb">水平垂直</div></div>
+        <div class="rb sm" id="rb-co"  onclick="applyC('一致')"      data-tip="一致拘束<kbd>C</kbd>"><div class="ic">⊙</div><div class="lb">一致</div></div>
+        <div class="rb sm" id="rb-eq"  onclick="applyC('等しい')"    data-tip="等しい拘束<kbd>E</kbd>"><div class="ic">=</div><div class="lb">等しい</div></div>
+        <div class="rb sm" id="rb-pe"  onclick="applyC('直行')"      data-tip="直行拘束<kbd>R</kbd>"><div class="ic">⊥</div><div class="lb">直行</div></div>
+        <div class="rb sm" id="rb-pa"  onclick="applyC('並行')"      data-tip="並行拘束<kbd>A</kbd>"><div class="ic">∥</div><div class="lb">並行</div></div>
+        <div class="rb sm" id="rb-mp"  onclick="applyC('中点')"      data-tip="中点拘束<kbd>M</kbd>"><div class="ic">◆</div><div class="lb">中点</div></div>
+        <div class="rb sm" id="rb-cl"  onclick="applyC('同一線上')"  data-tip="同一線上拘束: 点+線分 または 線分2本を選択<kbd>O</kbd>"><div class="ic">⋯</div><div class="lb">同一線上</div></div>
+        <div class="rb sm" id="rb-fx"  onclick="applyC('固定')"      data-tip="固定拘束<kbd>F</kbd>"><div class="ic">⚓</div><div class="lb">固定</div></div>
+      </div>
+      <div class="rg-lbl">拘束</div>
+    </div>
+
+    <div class="rsep"></div>
+
+    <div class="rg">
+      <div class="rg-btns">
+        <div class="rb" id="rb-dim" onclick="setTool('dim')" data-tip="寸法拘束 — キャンバス上で直接入力<kbd>D</kbd>">
+          <div class="ic">↔</div><div class="lb">寸法</div>
+        </div>
+        <div class="rb sm" id="rb-snap" onclick="toggleSnap()" data-tip="グリッドスナップ<kbd>G</kbd>">
+          <div class="ic">⊞</div><div class="lb">スナップ</div>
+        </div>
+      </div>
+      <div class="rg-lbl">結線機能</div>
+    </div>
+
+    <div class="rsep"></div>
+
+    <div class="rg">
+      <div class="rg-btns">
+        <div class="rb" id="rb-sel" onclick="setTool('select')" data-tip="選択<kbd>S</kbd>">
+          <div class="ic">↖</div><div class="lb">選択</div>
+        </div>
+        <div class="rb sm" onclick="deleteSelected()" data-tip="削除<kbd>Del</kbd>">
+          <div class="ic" style="color:var(--red)">✕</div><div class="lb">削除</div>
+        </div>
+        <div class="rb sm" onclick="clearAll()" data-tip="全消去">
+          <div class="ic" style="color:var(--red)">🗑</div><div class="lb">消去</div>
+        </div>
+        <div class="rb sm" onclick="exportJ()" data-tip="JSON出力">
+          <div class="ic" style="color:var(--green)">↓</div><div class="lb">出力</div>
+        </div>
+      </div>
+      <div class="rg-lbl">修正</div>
+    </div>
+
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app">
+
+  <!-- LEFT BAR -->
+  <div id="lbar">
+    <div class="lb2 on" id="lb-sel"  onclick="setTool('select')" title="選択 S">↖</div>
+    <div class="lb2-sep"></div>
+    <div class="lb2" id="lb-line" onclick="setTool('line')"  title="線分 L">╱</div>
+    <div class="lb2" id="lb-pt"   onclick="setTool('point')" title="点 P">·</div>
+    <div class="lb2-sep"></div>
+    <div class="lb2" id="lb-dim"  onclick="setTool('dim')"   title="寸法 D">↔</div>
+    <div class="lb2-sep"></div>
+    <div class="lb2" id="lb-snap" onclick="toggleSnap()"     title="スナップ G">⊞</div>
+    <div class="lb2-sep"></div>
+    <div class="lb2" onclick="fitView()"  title="フィット ⊡">⊡</div>
+    <div class="lb2" onclick="resetView()" title="リセット">⟳</div>
+  </div>
+
+  <!-- CANVAS -->
+  <div id="cw">
+    <svg id="cv" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <pattern id="gm" width="20" height="20" patternUnits="userSpaceOnUse">
+          <path d="M20 0L0 0 0 20" fill="none" stroke="#252525" stroke-width=".6"/>
+        </pattern>
+        <pattern id="gM" width="100" height="100" patternUnits="userSpaceOnUse">
+          <rect width="100" height="100" fill="url(#gm)"/>
+          <path d="M100 0L0 0 0 100" fill="none" stroke="#2e2e2e" stroke-width="1"/>
+        </pattern>
+        <!-- 矢印マーカー(寸法用) -->
+        <marker id="arr-s" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
+          <polygon points="0,1 5,3 0,5" fill="#ffaa00"/>
+        </marker>
+        <marker id="arr-e" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto-start-reverse">
+          <polygon points="0,1 5,3 0,5" fill="#ffaa00"/>
+        </marker>
+        <!-- 親子関係矢印 -->
+        <marker id="par-arr" markerWidth="7" markerHeight="7" refX="3.5" refY="3.5" orient="auto">
+          <polygon points="0,1 6,3.5 0,6" fill="#a78bfa" opacity=".8"/>
+        </marker>
+      </defs>
+      <g id="gg"><!-- view transform group -->
+        <rect id="gbg" width="8000" height="8000" x="-4000" y="-4000" fill="url(#gM)"/>
+        <!-- 軸 -->
+        <line x1="-4000" y1="0" x2="4000" y2="0" stroke="#b03030" stroke-width=".8" opacity=".35" pointer-events="none"/>
+        <line x1="0" y1="-4000" x2="0" y2="4000" stroke="#308050" stroke-width=".8" opacity=".35" pointer-events="none"/>
+        <circle cx="0" cy="0" r="2.5" fill="#555" opacity=".6" pointer-events="none"/>
+        <!-- レイヤ順 -->
+        <g id="g-parent-edges"></g>  <!-- 親子関係エッジ -->
+        <g id="g-dims"></g>
+        <g id="g-con-marks"></g>
+        <g id="g-lines"></g>
+        <g id="g-points"></g>
+        <g id="g-temp"></g>
+      </g>
+    </svg>
+    <div id="sbox"></div>
+    <div id="coord">X: <span id="cx">0</span> &nbsp; Y: <span id="cy">0</span></div>
+  </div>
+
+  <!-- RIGHT PANEL -->
+  <div id="rp">
+    <div class="rp-tabs">
+      <div class="rp-tab on" onclick="rpTab(0,this)">プロパティ</div>
+      <div class="rp-tab"   onclick="rpTab(1,this)">拘束ツリー</div>
+    </div>
+
+    <!-- TAB 0: プロパティ -->
+    <div id="rpt0">
+      <div class="rp-sec">
+        <div class="rp-head"><span class="arr">▼</span>選択</div>
+        <div class="rp-body" id="sel-info">
+          <div style="color:var(--txt3);font-size:10px;line-height:1.8">
+            要素をクリックで選択<br>Shift+クリック: 複数選択<br>ドラッグ: 矩形選択
+          </div>
+        </div>
+      </div>
+
+      <div class="rp-sec" id="dim-sec" style="display:none">
+        <div class="rp-head"><span class="arr">▼</span>寸法拘束</div>
+        <div class="rp-body">
+          <div class="prop"><div class="pk">線分</div><div class="pv" id="dim-id">—</div></div>
+          <div class="prop"><div class="pk">現在長</div><div class="pv" style="color:var(--dim-col)" id="dim-cur">—</div></div>
+          <div class="prop" style="padding:4px 0">
+            <div class="pk">拘束値</div>
+            <input id="dim-rpval" type="number" min="0.1" step="0.5"
+              style="background:#111;border:1px solid var(--dim-col);color:var(--dim-col);font-family:var(--mono);font-size:11px;padding:3px 6px;border-radius:2px;outline:none;width:90px"
+              placeholder="px">
+          </div>
+          <div style="display:flex;gap:4px;margin-top:5px">
+            <button onclick="applyDimPanel()" style="flex:1;background:rgba(6,150,215,.2);border:1px solid var(--blue);color:#fff;font-size:10px;padding:4px;border-radius:2px;cursor:pointer">適用</button>
+            <button onclick="removeDim()"     style="flex:1;background:rgba(231,76,60,.1);border:1px solid var(--red);color:var(--red);font-size:10px;padding:4px;border-radius:2px;cursor:pointer">解除</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="rp-sec" style="flex:1;display:flex;flex-direction:column;min-height:0">
+        <div class="rp-head"><span class="arr">▼</span>適用済み拘束</div>
+        <div class="rp-scroll"><div id="con-list" style="padding:4px 6px"></div></div>
+      </div>
+    </div>
+
+    <!-- TAB 1: 拘束ツリー (親子関係) -->
+    <div id="rpt1" style="display:none;flex:1;flex-direction:column;overflow:hidden">
+      <div style="padding:6px 10px;border-bottom:1px solid var(--border);font-size:10px;color:var(--txt3);line-height:1.7">
+        <span style="color:var(--parent-edge)">━━</span> 親子エッジ: 拘束元 → 拘束対象<br>
+        <span style="color:var(--dim-col)">↔</span> 寸法拘束　<span style="color:var(--con-col)">●</span> 幾何拘束
+      </div>
+      <div class="rp-scroll"><div id="tree-view" style="padding:4px 2px"></div></div>
+    </div>
+
+    <div id="stats">
+      <div>点: <span id="st-pt">0</span></div>
+      <div>線: <span id="st-ln">0</span></div>
+      <div>寸法: <span id="st-dm" style="color:var(--dim-col)">0</span></div>
+      <div>拘束: <span id="st-cn" style="color:var(--con-col)">0</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- BOTTOM BAR -->
+<div id="bb">
+  <div>ツール: <span class="bv" id="bb-tool">選択</span></div>
+  <div>Zoom: <span class="bv" id="bb-zoom">100%</span></div>
+  <div>選択: <span class="bv" id="bb-sel">0</span></div>
+  <div id="bb-hint">L=線分 S=選択 D=寸法 H=水平垂直 C=一致 E=等しい R=直行 A=並行 Del=削除</div>
+</div>
+
+<div id="tip"></div>
+
+<script>
+'use strict';
+// ══════════════════════════════════════════════════════════
+//  JSON 仕様 (from fusion_kousoku_vibe_v4.6)
+// ══════════════════════════════════════════════════════════
+const SPEC = [
+  {id:"N1778732776872",content:"Reference：fusion 360 の拘束",parentId:null},
+  {id:"N1778732819878",content:"結線機能",parentId:null},
+  {id:"N1778732884466",content:"水平垂直",  parentId:"N1778732776872"},
+  {id:"N1778732894223",content:"一致",      parentId:"N1778732776872"},
+  {id:"N1778732914354",content:"等しい",    parentId:"N1778732776872"},
+  {id:"N1778732931240",content:"直行",      parentId:"N1778732776872"},
+  {id:"N1778732942476",content:"固定",      parentId:"N1778732776872"},
+  {id:"N1778732951406",content:"中点",      parentId:"N1778732776872"},
+  {id:"N1778732970123",content:"同一線上",  parentId:"N1778732776872"},
+  {id:"N1778733009679",content:"並行",      parentId:"N1778732776872"},
+  {id:"N1778733108463",content:"寸法指定",  parentId:"N1778732819878"},
+  {id:"N1778733117116",content:"座標スナップ",parentId:"N1778732819878"},
+];
+
+const CMETA = {
+  "水平垂直": {icon:"⊢", color:"#58b4ff", sym:"HV"},
+  "一致":     {icon:"⊙", color:"#58e87a", sym:"CO"},
+  "等しい":   {icon:"=", color:"#c084fc", sym:"EQ"},
+  "直行":     {icon:"⊥", color:"#f87171", sym:"PE"},
+  "並行":     {icon:"∥", color:"#fbbf24", sym:"PA"},
+  "中点":     {icon:"◆", color:"#34d399", sym:"MP"},
+  "同一線上": {icon:"⋯", color:"#fb923c", sym:"CL"},
+  "固定":     {icon:"⚓", color:"#facc15", sym:"FX"},
+  "寸法指定": {icon:"↔", color:"#ffaa00", sym:"DIM"},
+};
+
+// ══════════════════════════════════════════════════════════
+//  データ
+// ══════════════════════════════════════════════════════════
+let pts   = []; // {id,x,y,fixed,conCount}
+let segs  = []; // {id,p1,p2,dim,dimVal,conCount}
+let cons  = []; // {id,type,parent,children:[id...],targets:[id...]}
+//   parent: 拘束の「主体」となる要素ID (親)
+//   children: 拘束によって動かされる要素ID群 (子)
+
+let tool    = 'select';
+let snapOn  = true;
+const SNAP  = 20;
+const PTHR  = 10;  // 点スナップ閾値 (screen px)
+
+// ビュー
+let VX=0,VY=0,VS=1;
+// 描画
+let drawing=false, drawP1=null;
+// 選択
+let selIds=[];
+// ドラッグ
+let dragPt=null, dragOX=0,dragOY=0;
+// 矩形選択
+let boxSel=false,boxSt=null;
+// パン
+let panning=false,panSt=null;
+// 寸法操作
+let activeDimId=null;      // 右パネル用
+let canvasDimInput=null;   // キャンバス上のINPUT要素
+
+let _id=1; const gid=()=>'E'+(++_id);
+
+// SVG layers
+const svg    = document.getElementById('cv');
+const GG     = document.getElementById('gg');
+const gPE    = document.getElementById('g-parent-edges');
+const gDim   = document.getElementById('g-dims');
+const gCon   = document.getElementById('g-con-marks');
+const gLines = document.getElementById('g-lines');
+const gPts   = document.getElementById('g-points');
+const gTemp  = document.getElementById('g-temp');
+const cw     = document.getElementById('cw');
+const sbox   = document.getElementById('sbox');
+
+// ══════════════════════════════════════════════════════════
+//  座標変換
+// ══════════════════════════════════════════════════════════
+function toW(sx,sy){return{x:(sx-VX)/VS,y:(sy-VY)/VS}}
+function toS(wx,wy){return{x:wx*VS+VX,  y:wy*VS+VY}}
+
+function clientToWorld(e){
+  const r=cw.getBoundingClientRect();
+  return toW(e.clientX-r.left, e.clientY-r.top);
+}
+function clientToSnap(e){
+  const w=clientToWorld(e);
+  // 近傍点スナップ優先
+  const near=nearPt(w.x,w.y,PTHR/VS);
+  if(near)return{x:near.x,y:near.y,snapId:near.id};
+  if(snapOn)return{x:Math.round(w.x/SNAP)*SNAP,y:Math.round(w.y/SNAP)*SNAP};
+  return{x:w.x,y:w.y};
+}
+function nearPt(wx,wy,thresh){
+  let b=null,bd=thresh;
+  for(const p of pts){const d=Math.hypot(p.x-wx,p.y-wy);if(d<bd){bd=d;b=p;}}
+  return b;
+}
+function nearSeg(wx,wy,thresh){
+  let b=null,bd=thresh;
+  for(const s of segs){
+    const p1=ptById(s.p1),p2=ptById(s.p2);
+    if(!p1||!p2)continue;
+    const d=dSeg(wx,wy,p1.x,p1.y,p2.x,p2.y);
+    if(d<bd){bd=d;b=s;}
+  }
+  return b;
+}
+function dSeg(px,py,ax,ay,bx,by){
+  const dx=bx-ax,dy=by-ay,l2=dx*dx+dy*dy;
+  if(!l2)return Math.hypot(px-ax,py-ay);
+  const t=Math.max(0,Math.min(1,((px-ax)*dx+(py-ay)*dy)/l2));
+  return Math.hypot(px-ax-t*dx,py-ay-t*dy);
+}
+function ptById(id){return pts.find(p=>p.id===id)}
+function segById(id){return segs.find(s=>s.id===id)}
+function segLen(s){
+  const p1=ptById(s.p1),p2=ptById(s.p2);
+  return p1&&p2?Math.hypot(p2.x-p1.x,p2.y-p1.y):0;
+}
+
+// ══════════════════════════════════════════════════════════
+//  ビュー
+// ══════════════════════════════════════════════════════════
+function applyView(){
+  GG.setAttribute('transform',`translate(${VX},${VY}) scale(${VS})`);
+  document.getElementById('bb-zoom').textContent=Math.round(VS*100)+'%';
+}
+function fitView(){
+  if(!pts.length){resetView();return;}
+  const xs=pts.map(p=>p.x),ys=pts.map(p=>p.y);
+  const x1=Math.min(...xs),x2=Math.max(...xs),y1=Math.min(...ys),y2=Math.max(...ys);
+  const W=cw.clientWidth,H=cw.clientHeight;
+  VS=Math.min(W/(x2-x1||1),H/(y2-y1||1))*.65;
+  VX=W/2-(x1+x2)/2*VS; VY=H/2-(y1+y2)/2*VS;
+  applyView();renderAll();
+}
+function resetView(){
+  VS=1;VX=cw.clientWidth/2;VY=cw.clientHeight/2;
+  applyView();renderAll();
+}
+
+// ══════════════════════════════════════════════════════════
+//  ツール
+// ══════════════════════════════════════════════════════════
+const TLBL={select:'選択',line:'線分',point:'点',dim:'寸法'};
+const THINT={
+  select:'クリック / Shift+クリック / ドラッグで選択 | 同一線上: 点+線分 または 線分2本を選択してOキー',
+  line:  'クリックで始点 → クリックで終点 | Esc=キャンセル | ダブルクリック=終了',
+  point: 'クリックで点を配置',
+  dim:   '線分をクリックすると寸法入力フィールドが現れます'
+};
+function setTool(t){
+  tool=t; drawing=false; drawP1=null;
+  closeCanvasDimInput();
+  gTemp.innerHTML='';
+  if(t!=='select')selIds=[];
+  renderAll(); updRibbon(); updCursor(); updStatus();
+  document.getElementById('bb-tool').textContent=TLBL[t]||t;
+  document.getElementById('bb-hint').textContent=THINT[t]||'';
+}
+function updRibbon(){
+  document.querySelectorAll('.rb,.lb2').forEach(b=>b.classList.remove('on'));
+  const m={select:['rb-sel','lb-sel'],line:['rb-line','lb-line'],point:['rb-pt','lb-pt'],dim:['rb-dim','lb-dim']};
+  (m[tool]||[]).forEach(id=>document.getElementById(id)?.classList.add('on'));
+}
+function updCursor(){
+  cw.className='';
+  if(tool==='line'||tool==='point')cw.classList.add('cr-cross');
+}
+function toggleSnap(){
+  snapOn=!snapOn;
+  ['rb-snap','lb-snap'].forEach(id=>document.getElementById(id)?.classList.toggle('on',snapOn));
+}
+
+// ══════════════════════════════════════════════════════════
+//  要素追加
+// ══════════════════════════════════════════════════════════
+function addPt(x,y,fixed=false){
+  const id=gid();
+  pts.push({id,x,y,fixed,conCount:0});
+  updStatus();return id;
+}
+function addSeg(p1,p2){
+  const id=gid();
+  segs.push({id,p1,p2,dim:false,dimVal:0,conCount:0});
+  updStatus();return id;
+}
+
+// ══════════════════════════════════════════════════════════
+//  拘束適用 — 親子関係を明確に記録
+// ══════════════════════════════════════════════════════════
+/*  親子モデル:
+    parent  = 拘束の「基準」となる要素 (動かない側 / 寸法の被拘束線)
+    children = 拘束によって「従う」要素群 (動く側)
+    targets  = parent + children 全体 (描画・ハイライト用)
+*/
+function applyC(type){
+  if(!selIds.length){hint('要素を先に選択してください');return;}
+  let con=null;
+  switch(type){
+    case '水平垂直':  con=cHV();       break;
+    case '一致':      con=cCo();       break;
+    case '等しい':    con=cEq();       break;
+    case '直行':      con=cPerp();     break;
+    case '並行':      con=cPara();     break;
+    case '中点':      con=cMid();      break;
+    case '同一線上':  con=cColin();    break;
+    case '固定':      con=cFix();      break;
+  }
+  if(con){
+    cons.push(con);
+    // 拘束カウント更新
+    con.targets.forEach(id=>{
+      const p=ptById(id),s=segById(id);
+      if(p)p.conCount++;if(s)s.conCount++;
+    });
+  }
+  renderAll();updConList();updTree();updStatus();
+}
+
+function selSegs(){return selIds.map(id=>segById(id)).filter(Boolean)}
+function selPts() {return selIds.map(id=>ptById(id)).filter(Boolean)}
+
+/* 新規拘束オブジェクト生成 */
+function mkCon(type,parent,children,targets){
+  return{id:gid(),type,parent,children:[...children],targets:[...targets]};
+}
+
+function cHV(){
+  const ss=selSegs();if(!ss.length){hint('水平垂直: 線分を選択');return null;}
+  const results=[];
+  ss.forEach(s=>{
+    const p1=ptById(s.p1),p2=ptById(s.p2);if(!p1||!p2)return;
+    const adx=Math.abs(p2.x-p1.x),ady=Math.abs(p2.y-p1.y);
+    // parent=固定側の点, child=動く側の点
+    if(adx>=ady){const fixed=p1.fixed?p1:p1;p2.y=p1.y;}  // 水平: p2をp1に合わせる
+    else{p2.x=p1.x;}                                         // 垂直
+    results.push(mkCon('水平垂直',s.id,[s.p2],[s.id,s.p1,s.p2]));
+  });
+  return results.length===1?results[0]:results[0];
+}
+function cCo(){
+  const ps=selPts();if(ps.length<2){hint('一致: 点を2つ選択');return null;}
+  const[a,b]=ps;
+  // parent=a(固定側), child=b(移動側)
+  if(!b.fixed){b.x=a.x;b.y=a.y;}else if(!a.fixed){a.x=b.x;a.y=b.y;}
+  return mkCon('一致',a.id,[b.id],[a.id,b.id]);
+}
+function cEq(){
+  const ss=selSegs();if(ss.length<2){hint('等しい: 線分2本選択');return null;}
+  const[a,b]=ss;
+  // parent=a, child=b (bの長さをaに合わせる)
+  scaleSeg(b,segLen(a));
+  return mkCon('等しい',a.id,[b.id],[a.id,b.id]);
+}
+function scaleSeg(s,tlen){
+  const p1=ptById(s.p1),p2=ptById(s.p2);if(!p1||!p2)return;
+  const cur=segLen(s);if(!cur)return;
+  const r=tlen/cur;
+  if(!p2.fixed){p2.x=p1.x+(p2.x-p1.x)*r;p2.y=p1.y+(p2.y-p1.y)*r;}
+}
+function cPerp(){
+  const ss=selSegs();if(ss.length<2){hint('直行: 線分2本選択');return null;}
+  const[a,b]=ss;
+  const p1a=ptById(a.p1),p2a=ptById(a.p2);
+  const p1b=ptById(b.p1),p2b=ptById(b.p2);
+  if(!p1a||!p2a||!p1b||!p2b)return null;
+  const adx=p2a.x-p1a.x,ady=p2a.y-p1a.y,al=Math.hypot(adx,ady)||1;
+  const lb=segLen(b);
+  if(!p2b.fixed){p2b.x=p1b.x+(-ady/al)*lb;p2b.y=p1b.y+(adx/al)*lb;}
+  // parent=a, child=b
+  return mkCon('直行',a.id,[b.id],[a.id,b.id]);
+}
+function cPara(){
+  const ss=selSegs();if(ss.length<2){hint('並行: 線分2本選択');return null;}
+  const[a,b]=ss;
+  const p1a=ptById(a.p1),p2a=ptById(a.p2);
+  const p1b=ptById(b.p1),p2b=ptById(b.p2);
+  if(!p1a||!p2a||!p1b||!p2b)return null;
+  const adx=p2a.x-p1a.x,ady=p2a.y-p1a.y,al=Math.hypot(adx,ady)||1;
+  const lb=segLen(b);
+  if(!p2b.fixed){p2b.x=p1b.x+(adx/al)*lb;p2b.y=p1b.y+(ady/al)*lb;}
+  return mkCon('並行',a.id,[b.id],[a.id,b.id]);
+}
+function cMid(){
+  const ps=selPts(),ss=selSegs();
+  if(!ps.length||!ss.length){hint('中点: 点+線分を選択');return null;}
+  const pt=ps[0],s=ss[0];
+  const p1=ptById(s.p1),p2=ptById(s.p2);if(!p1||!p2)return null;
+  if(!pt.fixed){pt.x=(p1.x+p2.x)/2;pt.y=(p1.y+p2.y)/2;}
+  // parent=線分, child=点
+  return mkCon('中点',s.id,[pt.id],[pt.id,s.id]);
+}
+function cColin(){
+  const ss=selSegs();
+  const ps=selPts();
+
+  // ケース① 点 + 線分: 点を線分の直線上に射影
+  if(ps.length>=1 && ss.length>=1){
+    const pt=ps[0], seg=ss[0];
+    const p1=ptById(seg.p1),p2=ptById(seg.p2);
+    if(!p1||!p2)return null;
+    if(pt.fixed){hint('同一線上: 選択した点は固定されています');return null;}
+    // 直線BC上への射影 (tをクランプしない = 延長線上も含む)
+    const ax=p1.x,ay=p1.y,dx=p2.x-ax,dy=p2.y-ay,l2=dx*dx+dy*dy||1;
+    const t=((pt.x-ax)*dx+(pt.y-ay)*dy)/l2;
+    pt.x=ax+t*dx; pt.y=ay+t*dy;
+    // parent=線分, child=点
+    return mkCon('同一線上',seg.id,[pt.id],[seg.id,pt.id,seg.p1,seg.p2]);
+  }
+
+  // ケース② 線分 + 線分: 従来通り
+  if(ss.length>=2){
+    const[a,b]=ss;
+    const p1a=ptById(a.p1),p2a=ptById(a.p2);
+    const p1b=ptById(b.p1),p2b=ptById(b.p2);
+    if(!p1a||!p2a||!p1b||!p2b)return null;
+    const ax=p1a.x,ay=p1a.y,dx=p2a.x-ax,dy=p2a.y-ay,l2=dx*dx+dy*dy||1;
+    [p1b,p2b].forEach(p=>{
+      if(!p.fixed){const t=((p.x-ax)*dx+(p.y-ay)*dy)/l2;p.x=ax+t*dx;p.y=ay+t*dy;}
+    });
+    return mkCon('同一線上',a.id,[b.p1,b.p2],[a.id,b.id]);
+  }
+
+  hint('同一線上: 「点+線分」または「線分2本」を選択してください');
+  return null;
+}
+function cFix(){
+  const moved=[];
+  selIds.forEach(id=>{
+    const p=ptById(id);if(p&&!p.fixed){p.fixed=true;moved.push(id);}
+    const s=segById(id);
+    if(s){[s.p1,s.p2].forEach(pid=>{const p=ptById(pid);if(p&&!p.fixed){p.fixed=true;moved.push(pid);}});}
+  });
+  if(!moved.length){hint('固定: 要素を選択');return null;}
+  // parent=世界(null), child=固定された要素
+  return mkCon('固定',null,[...selIds],[...selIds]);
+}
+
+// ══════════════════════════════════════════════════════════
+//  寸法拘束 — キャンバス内直接入力
+// ══════════════════════════════════════════════════════════
+function openDimForSeg(s, clientX, clientY){
+  activeDimId=s.id;
+  // 右パネル更新
+  document.getElementById('dim-sec').style.display='';
+  document.getElementById('dim-id').textContent=s.id;
+  document.getElementById('dim-cur').textContent=segLen(s).toFixed(2)+' px';
+  document.getElementById('dim-rpval').value=s.dim?s.dimVal:Math.round(segLen(s));
+
+  // ── キャンバス内 INPUT を生成 ──
+  closeCanvasDimInput();
+  const p1=ptById(s.p1),p2=ptById(s.p2);
+  if(!p1||!p2)return;
+  const mx=(p1.x+p2.x)/2,my=(p1.y+p2.y)/2;
+  const dx=p2.x-p1.x,dy=p2.y-p1.y,len=Math.hypot(dx,dy)||1;
+  const nx=-dy/len,ny=dx/len;
+  const off=28/VS;
+  const sx=mx+nx*off,sy=my+ny*off;
+  const s2=toS(sx,sy);
+
+  const inp=document.createElement('input');
+  inp.type='number';inp.min='0.1';inp.step='0.5';
+  inp.className='dim-edit';
+  inp.value=s.dim?s.dimVal:Math.round(segLen(s));
+  inp.style.left=(s2.x-35)+'px';
+  inp.style.top =(s2.y-14)+'px';
+  cw.appendChild(inp);
+  canvasDimInput={el:inp,segId:s.id};
+
+  setTimeout(()=>{inp.focus();inp.select();},10);
+
+  inp.addEventListener('keydown',ev=>{
+    ev.stopPropagation();
+    if(ev.key==='Enter'){
+      commitDim(s.id,parseFloat(inp.value));
+      closeCanvasDimInput();
+    }
+    if(ev.key==='Escape')closeCanvasDimInput();
+  });
+  inp.addEventListener('blur',()=>{
+    // blurは少し遅延（他ボタン押下対策）
+    setTimeout(()=>{if(canvasDimInput&&canvasDimInput.el===inp)closeCanvasDimInput();},200);
+  });
+  inp.addEventListener('input',()=>{
+    // リアルタイムプレビュー
+    const v=parseFloat(inp.value);
+    if(!isNaN(v)&&v>0){
+      document.getElementById('dim-cur').textContent=v.toFixed(2)+' px (入力中)';
+    }
+  });
+  cw.classList.add('cr-text');
+}
+
+function closeCanvasDimInput(){
+  if(canvasDimInput){canvasDimInput.el.remove();canvasDimInput=null;}
+  cw.classList.remove('cr-text');
+}
+
+function commitDim(segId,val){
+  if(isNaN(val)||val<=0){hint('有効な数値を入力してください');return;}
+  const s=segById(segId);if(!s)return;
+  s.dim=true;s.dimVal=val;
+  scaleSeg(s,val);
+  // 既存の寸法拘束を更新 or 追加
+  const existing=cons.find(c=>c.type==='寸法指定'&&c.parent===segId);
+  if(existing){existing.targets=[segId,s.p1,s.p2];existing.children=[s.p1,s.p2];}
+  else{
+    const c=mkCon('寸法指定',segId,[s.p1,s.p2],[segId,s.p1,s.p2]);
+    cons.push(c);
+    s.conCount++;ptById(s.p1)&&ptById(s.p1).conCount++;ptById(s.p2)&&ptById(s.p2).conCount++;
+  }
+  activeDimId=segId;
+  document.getElementById('dim-cur').textContent=segLen(s).toFixed(2)+' px';
+  document.getElementById('dim-rpval').value=val;
+  renderAll();updConList();updTree();updStatus();
+}
+
+function applyDimPanel(){
+  if(!activeDimId)return;
+  commitDim(activeDimId,parseFloat(document.getElementById('dim-rpval').value));
+}
+function removeDim(){
+  if(!activeDimId)return;
+  const s=segById(activeDimId);
+  if(s){s.dim=false;s.dimVal=0;}
+  cons=cons.filter(c=>!(c.type==='寸法指定'&&c.parent===activeDimId));
+  activeDimId=null;
+  document.getElementById('dim-sec').style.display='none';
+  closeCanvasDimInput();
+  renderAll();updConList();updTree();updStatus();
+}
+
+// ══════════════════════════════════════════════════════════
+//  拘束リアルタイム再適用
+// ══════════════════════════════════════════════════════════
+/* ドラッグ中に点が同一線上拘束を持つ場合、線上に射影し続ける */
+function enforceColinear(ptId){
+  cons.forEach(con=>{
+    if(con.type!=='同一線上')return;
+    if(!con.children.includes(ptId))return;
+    const seg=segById(con.parent);
+    if(!seg)return;
+    const p1=ptById(seg.p1),p2=ptById(seg.p2);
+    if(!p1||!p2)return;
+    const pt=ptById(ptId);if(!pt||pt.fixed)return;
+    const ax=p1.x,ay=p1.y,dx=p2.x-ax,dy=p2.y-ay,l2=dx*dx+dy*dy||1;
+    const t=((pt.x-ax)*dx+(pt.y-ay)*dy)/l2;
+    pt.x=ax+t*dx; pt.y=ay+t*dy;
+  });
+}
+
+// ══════════════════════════════════════════════════════════
+//  レンダリング
+// ══════════════════════════════════════════════════════════
+function renderAll(){
+  gPE.innerHTML='';gDim.innerHTML='';gCon.innerHTML='';
+  gLines.innerHTML='';gPts.innerHTML='';
+  segs.forEach(s=>renderSeg(s));
+  pts.forEach(p=>renderPt(p));
+  renderParentEdges();
+  renderDims();
+  renderConMarks();
+}
+
+/* 拘束状態による線色 */
+function segColor(s){
+  if(selIds.includes(s.id))return'#ffcc00';
+  if(s.dim||s.conCount>0)return'#3fb950';  // 拘束済み = 緑
+  return'#4db8ff';  // 未拘束 = 青
+}
+function ptColor(p){
+  if(selIds.includes(p.id))return'#ffcc00';
+  if(p.fixed)return'#ff9900';
+  if(p.conCount>0)return'#3fb950';
+  return'#4db8ff';
+}
+
+function renderSeg(s){
+  const p1=ptById(s.p1),p2=ptById(s.p2);if(!p1||!p2)return;
+  const col=segColor(s);
+  const sel=selIds.includes(s.id);
+
+  if(s.dim){
+    const hl=mk('line');
+    sa(hl,{x1:p1.x,y1:p1.y,x2:p2.x,y2:p2.y,
+      stroke:'#ffaa00','stroke-width':5/VS,'stroke-linecap':'round',opacity:.1,'pointer-events':'none'});
+    gLines.appendChild(hl);
+  }
+  const vis=mk('line');
+  sa(vis,{x1:p1.x,y1:p1.y,x2:p2.x,y2:p2.y,
+    stroke:col,'stroke-width':(sel?2.5:1.5)/VS,'stroke-linecap':'round','pointer-events':'none'});
+  gLines.appendChild(vis);
+
+  // ヒットエリア
+  const hit=mk('line');
+  sa(hit,{x1:p1.x,y1:p1.y,x2:p2.x,y2:p2.y,
+    stroke:'transparent','stroke-width':14/VS,'stroke-linecap':'round',cursor:'pointer'});
+  hit.addEventListener('mousedown',ev=>onSegMD(ev,s));
+  gLines.appendChild(hit);
+}
+
+function renderPt(p){
+  const sel=selIds.includes(p.id);
+  const col=ptColor(p);
+  const R=5/VS;
+  const g=mk('g');g.style.cursor='crosshair';
+
+  const hitC=mk('circle');
+  sa(hitC,{cx:p.x,cy:p.y,r:10/VS,fill:'transparent','pointer-events':'all'});
+  hitC.addEventListener('mousedown',ev=>onPtMD(ev,p));
+  g.appendChild(hitC);
+
+  const c=mk('circle');
+  sa(c,{cx:p.x,cy:p.y,r:sel?R*1.6:R,
+    fill:sel?'#ffcc00':(p.fixed?'#332200':'#1a1a1a'),
+    stroke:col,'stroke-width':(sel?2:1.2)/VS,'pointer-events':'none'});
+  g.appendChild(c);
+
+  if(p.fixed){
+    const s=4/VS;
+    [[1,1],[-1,1]].forEach(([sx,sy])=>{
+      const l=mk('line');
+      sa(l,{x1:p.x-s*sx,y1:p.y-s*sy,x2:p.x+s*sx,y2:p.y+s*sy,
+        stroke:'#ff9900','stroke-width':1/VS,'pointer-events':'none'});
+      g.appendChild(l);
+    });
+  }
+  gPts.appendChild(g);
+}
+
+/* 親子関係エッジ — キャンバス上に紫の矢印線で可視化 */
+function renderParentEdges(){
+  cons.forEach(con=>{
+    if(!con.parent)return;
+    const par=segById(con.parent)||ptById(con.parent);
+    if(!par)return;
+    let px=0,py=0;
+    if(par.x!==undefined){px=par.x;py=par.y;}
+    else{const a=ptById(par.p1),b=ptById(par.p2);if(a&&b){px=(a.x+b.x)/2;py=(a.y+b.y)/2;}}
+
+    con.children.forEach(cid=>{
+      const ch=segById(cid)||ptById(cid);if(!ch)return;
+      let cx2=0,cy2=0;
+      if(ch.x!==undefined){cx2=ch.x;cy2=ch.y;}
+      else{const a=ptById(ch.p1),b=ptById(ch.p2);if(a&&b){cx2=(a.x+b.x)/2;cy2=(a.y+b.y)/2;}}
+
+      // 少し短くして矢印が点を突き抜けないように
+      const dx=cx2-px,dy=cy2-py,dl=Math.hypot(dx,dy)||1;
+      const shrink=8/VS;
+      const ex=cx2-dx/dl*shrink,ey=cy2-dy/dl*shrink;
+
+      const l=mk('line');
+      sa(l,{x1:px,y1:py,x2:ex,y2:ey,
+        stroke:'#a78bfa','stroke-width':1/VS,
+        'stroke-dasharray':`${5/VS},${3/VS}`,
+        'marker-end':'url(#par-arr)','pointer-events':'none',opacity:.55});
+      gPE.appendChild(l);
+    });
+  });
+}
+
+/* 寸法表示 */
+function renderDims(){
+  segs.forEach(s=>{
+    if(!s.dim)return;
+    const p1=ptById(s.p1),p2=ptById(s.p2);if(!p1||!p2)return;
+    const dx=p2.x-p1.x,dy=p2.y-p1.y,len=Math.hypot(dx,dy)||1;
+    const nx=-dy/len,ny=dx/len,off=22/VS;
+    const mx=(p1.x+p2.x)/2,my=(p1.y+p2.y)/2;
+
+    // 補助線
+    [p1,p2].forEach(pt=>{
+      const el=mk('line');
+      sa(el,{x1:pt.x,y1:pt.y,x2:pt.x+nx*off*1.4,y2:pt.y+ny*off*1.4,
+        stroke:'#ffaa00','stroke-width':.7/VS,
+        'stroke-dasharray':`${4/VS},${3/VS}`,'pointer-events':'none'});
+      gDim.appendChild(el);
+    });
+    // 寸法線
+    const dl=mk('line');
+    sa(dl,{x1:p1.x+nx*off,y1:p1.y+ny*off,x2:p2.x+nx*off,y2:p2.y+ny*off,
+      stroke:'#ffaa00','stroke-width':1/VS,
+      'marker-start':'url(#arr-e)','marker-end':'url(#arr-s)','pointer-events':'none'});
+    gDim.appendChild(dl);
+
+    // ラベル背景
+    const tx=mx+nx*(off+14/VS),ty=my+ny*(off+14/VS);
+    const isActive=(activeDimId===s.id&&canvasDimInput);
+    const lbl=s.dimVal.toFixed(1);
+    const fw=(lbl.length*7+12)/VS,fh=16/VS;
+    const bg=mk('rect');
+    sa(bg,{x:tx-fw/2,y:ty-fh/2,width:fw,height:fh,
+      fill:isActive?'#332200':'#1c1400',rx:2/VS,
+      stroke:'#ffaa00','stroke-width':(isActive?1.5:.5)/VS,
+      'pointer-events':'visibleFill',cursor:'text'});
+    bg.addEventListener('mousedown',ev=>{
+      ev.stopPropagation();
+      openDimForSeg(s,ev.clientX,ev.clientY);
+    });
+    gDim.appendChild(bg);
+
+    // 数値テキスト (クリック可)
+    const txt=mk('text');
+    sa(txt,{x:tx,y:ty,'font-size':11/VS+'px',fill:'#ffaa00',
+      'text-anchor':'middle','dominant-baseline':'middle',
+      'font-family':'Cascadia Code,Consolas,monospace',
+      'pointer-events':'visibleFill',cursor:'text'});
+    txt.textContent=lbl;
+    txt.addEventListener('mousedown',ev=>{
+      ev.stopPropagation();
+      openDimForSeg(s,ev.clientX,ev.clientY);
+    });
+    gDim.appendChild(txt);
+  });
+}
+
+/* 拘束マーク */
+function renderConMarks(){
+  const placed=new Map();
+  cons.forEach(con=>{
+    const m=CMETA[con.type];if(!m)return;
+    // parentにメインマーク
+    const mainId=con.parent||con.targets[0];
+    if(!mainId)return;
+    const off=placed.get(mainId)||0;placed.set(mainId,off+1);
+
+    let cx=0,cy=0;
+    const ps=ptById(mainId);
+    const ss=segById(mainId);
+    if(ps){cx=ps.x;cy=ps.y;}
+    else if(ss){const a=ptById(ss.p1),b=ptById(ss.p2);if(a&&b){cx=(a.x+b.x)/2;cy=(a.y+b.y)/2;}}
+    else return;
+
+    const ox=off*13/VS;
+    const bg=mk('rect');
+    sa(bg,{x:cx+4/VS+ox,y:cy-13/VS,width:12/VS,height:12/VS,
+      rx:2/VS,fill:'#1a1a20',opacity:.9,'pointer-events':'none'});
+    gCon.appendChild(bg);
+    const t=mk('text');
+    sa(t,{x:cx+10/VS+ox,y:cy-7/VS,'font-size':9/VS+'px',
+      fill:m.color,'text-anchor':'middle','dominant-baseline':'middle',
+      'font-family':'monospace','pointer-events':'none'});
+    t.textContent=m.icon;
+    gCon.appendChild(t);
+
+    // children に小さなサブマーク
+    con.children.forEach(cid=>{
+      const cp=ptById(cid),cs=segById(cid);
+      let ccx=0,ccy=0;
+      if(cp){ccx=cp.x;ccy=cp.y;}
+      else if(cs){const a=ptById(cs.p1),b=ptById(cs.p2);if(a&&b){ccx=(a.x+b.x)/2;ccy=(a.y+b.y)/2;}}
+      else return;
+      const sm=mk('text');
+      sa(sm,{x:ccx+4/VS,y:ccy-10/VS,'font-size':7/VS+'px',
+        fill:m.color,opacity:.5,'font-family':'monospace','pointer-events':'none'});
+      sm.textContent=m.icon;
+      gCon.appendChild(sm);
+    });
+  });
+}
+
+// ══════════════════════════════════════════════════════════
+//  マウスイベント — 点
+// ══════════════════════════════════════════════════════════
+function onPtMD(e,pt){
+  e.stopPropagation();
+  if(tool==='line'){
+    if(!drawing){drawing=true;drawP1=pt.id;}
+    else{
+      if(pt.id!==drawP1)addSeg(drawP1,pt.id);
+      drawP1=pt.id;gTemp.innerHTML='';renderAll();
+    }
+    return;
+  }
+  if(tool==='select'){
+    if(e.shiftKey){const i=selIds.indexOf(pt.id);if(i===-1)selIds.push(pt.id);else selIds.splice(i,1);}
+    else selIds=[pt.id];
+    if(!pt.fixed){dragPt=pt;const w=clientToWorld(e);dragOX=w.x-pt.x;dragOY=w.y-pt.y;}
+    renderAll();updSelInfo();
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+//  マウスイベント — 線分
+// ══════════════════════════════════════════════════════════
+function onSegMD(e,s){
+  e.stopPropagation();
+  if(tool==='dim'){
+    openDimForSeg(s,e.clientX,e.clientY);
+    return;
+  }
+  if(tool==='select'){
+    if(e.shiftKey){const i=selIds.indexOf(s.id);if(i===-1)selIds.push(s.id);else selIds.splice(i,1);}
+    else{selIds=[s.id];openDimForSeg(s,e.clientX,e.clientY);}
+    renderAll();updSelInfo();
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+//  マウスイベント — キャンバス
+// ══════════════════════════════════════════════════════════
+cw.addEventListener('mousedown',e=>{
+  const r=cw.getBoundingClientRect();
+  const sx=e.clientX-r.left,sy=e.clientY-r.top;
+  const sc=clientToSnap(e);
+
+  if(e.button===1||(e.button===0&&e.altKey)){
+    panning=true;panSt={x:e.clientX,y:e.clientY};
+    cw.classList.add('cr-grabbing');return;
+  }
+  const onBg=e.target===svg||e.target.id==='gbg'||e.target.closest('#gg')===GG&&
+    !e.target.closest('#g-lines')&&!e.target.closest('#g-points')&&
+    !e.target.closest('#g-dims')&&!e.target.closest('#g-con-marks');
+
+  if(e.target.tagName==='INPUT')return;
+
+  if(tool==='point'){
+    const pid=addPt(sc.x,sc.y);
+    selIds=[pid];renderAll();updSelInfo();return;
+  }
+  if(tool==='line'){
+    const near=nearPt(sc.x,sc.y,PTHR/VS);
+    const pid=near?near.id:addPt(sc.x,sc.y);
+    if(!drawing){drawing=true;drawP1=pid;renderAll();}
+    else{if(pid!==drawP1)addSeg(drawP1,pid);drawP1=pid;gTemp.innerHTML='';renderAll();}
+    return;
+  }
+  if(tool==='dim'){
+    const near=nearSeg(sc.x,sc.y,10/VS);
+    if(near)openDimForSeg(near,e.clientX,e.clientY);
+    return;
+  }
+  if(tool==='select'){
+    // キャンバス背景クリック
+    const tgt=e.target;
+    const isSegOrPt=tgt.closest('#g-lines')||tgt.closest('#g-points')||tgt.closest('#g-dims');
+    if(!isSegOrPt){
+      if(!e.shiftKey){selIds=[];renderAll();updSelInfo();}
+      closeCanvasDimInput();
+      boxSel=true;boxSt={x:sx,y:sy};
+      sbox.style.cssText=`display:block;left:${sx}px;top:${sy}px;width:0;height:0`;
+    }
+  }
+});
+
+document.addEventListener('mousemove',e=>{
+  const sc=clientToSnap(e);
+  document.getElementById('cx').textContent=sc.x.toFixed(0);
+  document.getElementById('cy').textContent=(-sc.y).toFixed(0);
+
+  if(dragPt){
+    const w=clientToWorld(e);
+    let nx=w.x-dragOX,ny=w.y-dragOY;
+    if(snapOn){nx=Math.round(nx/SNAP)*SNAP;ny=Math.round(ny/SNAP)*SNAP;}
+    dragPt.x=nx;dragPt.y=ny;
+    // 同一線上拘束をドラッグ中もリアルタイム再適用
+    enforceColinear(dragPt.id);
+    renderAll();return;
+  }
+  if(panning&&panSt){
+    VX+=e.clientX-panSt.x;VY+=e.clientY-panSt.y;
+    panSt={x:e.clientX,y:e.clientY};
+    applyView();return;
+  }
+  if(tool==='line'&&drawing&&drawP1){
+    gTemp.innerHTML='';
+    const sp=ptById(drawP1);if(!sp)return;
+    const near=nearPt(sc.x,sc.y,PTHR/VS);
+    const tx=near?near.x:sc.x,ty=near?near.y:sc.y;
+
+    const tl=mk('line');
+    sa(tl,{x1:sp.x,y1:sp.y,x2:tx,y2:ty,
+      stroke:'#4db8ff','stroke-width':1.2/VS,
+      'stroke-dasharray':`${6/VS},${4/VS}`,'pointer-events':'none'});
+    gTemp.appendChild(tl);
+    const tc=mk('circle');
+    sa(tc,{cx:tx,cy:ty,r:5/VS,fill:'none',
+      stroke:near?'#ffcc00':'#4db8ff','stroke-width':1/VS,'pointer-events':'none'});
+    gTemp.appendChild(tc);
+    // リアルタイム長さ
+    const lv=Math.hypot(tx-sp.x,ty-sp.y).toFixed(1);
+    const lt=mk('text');
+    sa(lt,{x:(sp.x+tx)/2+5/VS,y:(sp.y+ty)/2-5/VS,
+      'font-size':9/VS+'px',fill:'#666','font-family':'monospace','pointer-events':'none'});
+    lt.textContent=lv+'px';
+    gTemp.appendChild(lt);
+  }
+  if(boxSel&&boxSt){
+    const r=cw.getBoundingClientRect();
+    const sx2=e.clientX-r.left,sy2=e.clientY-r.top;
+    const x=Math.min(boxSt.x,sx2),y=Math.min(boxSt.y,sy2);
+    sbox.style.left=x+'px';sbox.style.top=y+'px';
+    sbox.style.width=Math.abs(sx2-boxSt.x)+'px';sbox.style.height=Math.abs(sy2-boxSt.y)+'px';
+  }
+});
+
+document.addEventListener('mouseup',e=>{
+  dragPt=null;
+  if(panning){panning=false;panSt=null;cw.classList.remove('cr-grabbing');}
+  if(boxSel&&boxSt){
+    boxSel=false;sbox.style.display='none';
+    const r=cw.getBoundingClientRect();
+    const sx2=e.clientX-r.left,sy2=e.clientY-r.top;
+    const bx1=Math.min(boxSt.x,sx2)/1,by1=Math.min(boxSt.y,sy2)/1;
+    const bx2=Math.max(boxSt.x,sx2),by2=Math.max(boxSt.y,sy2);
+    if(Math.abs(bx2-bx1)>4||Math.abs(by2-by1)>4){
+      const w1=toW(bx1,by1),w2=toW(bx2,by2);
+      pts.forEach(p=>{if(p.x>=w1.x&&p.x<=w2.x&&p.y>=w1.y&&p.y<=w2.y&&!selIds.includes(p.id))selIds.push(p.id);});
+      segs.forEach(s=>{
+        const a=ptById(s.p1),b=ptById(s.p2);
+        if(a&&b&&a.x>=w1.x&&a.x<=w2.x&&a.y>=w1.y&&a.y<=w2.y
+              &&b.x>=w1.x&&b.x<=w2.x&&b.y>=w1.y&&b.y<=w2.y&&!selIds.includes(s.id))selIds.push(s.id);
+      });
+      renderAll();updSelInfo();
+    }
+    boxSt=null;
+  }
+});
+
+cw.addEventListener('dblclick',()=>{if(tool==='line'&&drawing){drawing=false;drawP1=null;gTemp.innerHTML='';}});
+
+cw.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const d=e.deltaY>0?.88:1.12;
+  const r=cw.getBoundingClientRect();
+  const mx=e.clientX-r.left,my=e.clientY-r.top;
+  VX=mx-(mx-VX)*d;VY=my-(my-VY)*d;
+  VS=Math.max(.05,Math.min(20,VS*d));
+  applyView();renderAll();
+  // キャンバス内INPUT位置を更新
+  if(canvasDimInput){
+    const s=segById(canvasDimInput.segId);
+    if(s){
+      const p1=ptById(s.p1),p2=ptById(s.p2);
+      if(p1&&p2){
+        const mx2=(p1.x+p2.x)/2,my2=(p1.y+p2.y)/2;
+        const dx=p2.x-p1.x,dy=p2.y-p1.y,len=Math.hypot(dx,dy)||1;
+        const nx=-dy/len,ny=dx/len,off=28/VS;
+        const s2=toS(mx2+nx*off,my2+ny*off);
+        canvasDimInput.el.style.left=(s2.x-35)+'px';
+        canvasDimInput.el.style.top=(s2.y-14)+'px';
+        canvasDimInput.el.style.fontSize=(Math.max(10,Math.min(16,13*VS)))+'px';
+      }
+    }
+  }
+},{passive:false});
+
+// ══════════════════════════════════════════════════════════
+//  キーボード
+// ══════════════════════════════════════════════════════════
+document.addEventListener('keydown',e=>{
+  if(e.target.tagName==='INPUT')return;
+  switch(e.key.toLowerCase()){
+    case 's': setTool('select');      break;
+    case 'l': setTool('line');        break;
+    case 'p': setTool('point');       break;
+    case 'd': setTool('dim');         break;
+    case 'g': toggleSnap();           break;
+    case 'h': applyC('水平垂直');    break;
+    case 'c': applyC('一致');        break;
+    case 'e': applyC('等しい');      break;
+    case 'r': applyC('直行');        break;
+    case 'a': applyC('並行');        break;
+    case 'm': applyC('中点');        break;
+    case 'o': applyC('同一線上');    break;
+    case 'f': applyC('固定');        break;
+    case 'delete':case 'backspace': deleteSelected();break;
+    case 'escape':
+      if(drawing){drawing=false;drawP1=null;gTemp.innerHTML='';}
+      else{selIds=[];renderAll();updSelInfo();}
+      closeCanvasDimInput();
+      break;
+    case ' ': e.preventDefault();panning=true;break;
+  }
+});
+document.addEventListener('keyup',e=>{if(e.key===' ')panning=false;});
+
+// ══════════════════════════════════════════════════════════
+//  削除
+// ══════════════════════════════════════════════════════════
+function deleteSelected(){
+  const rem=new Set(selIds);
+  segs=segs.filter(s=>!rem.has(s.id));
+  pts=pts.filter(p=>{
+    if(!rem.has(p.id))return true;
+    segs=segs.filter(s=>s.p1!==p.id&&s.p2!==p.id);
+    return false;
+  });
+  cons=cons.filter(c=>!c.targets.some(t=>rem.has(t)));
+  selIds=[];activeDimId=null;
+  closeCanvasDimInput();
+  document.getElementById('dim-sec').style.display='none';
+  renderAll();updSelInfo();updConList();updTree();updStatus();
+}
+function clearAll(){
+  if(!confirm('全消去しますか？'))return;
+  pts=[];segs=[];cons=[];selIds=[];activeDimId=null;
+  closeCanvasDimInput();
+  document.getElementById('dim-sec').style.display='none';
+  renderAll();updSelInfo();updConList();updTree();updStatus();
+}
+
+// ══════════════════════════════════════════════════════════
+//  右パネル タブ切替
+// ══════════════════════════════════════════════════════════
+function rpTab(i,el){
+  document.querySelectorAll('.rp-tab').forEach(t=>t.classList.remove('on'));
+  el.classList.add('on');
+  document.getElementById('rpt0').style.display=i===0?'':'none';
+  document.getElementById('rpt1').style.display=i===1?'flex':'none';
+  if(i===1)updTree();
+}
+
+// ══════════════════════════════════════════════════════════
+//  UI 更新
+// ══════════════════════════════════════════════════════════
+function updStatus(){
+  document.getElementById('st-pt').textContent=pts.length;
+  document.getElementById('st-ln').textContent=segs.length;
+  document.getElementById('st-dm').textContent=segs.filter(s=>s.dim).length;
+  document.getElementById('st-cn').textContent=cons.length;
+  document.getElementById('bb-sel').textContent=selIds.length;
+}
+
+function updSelInfo(){
+  updStatus();
+  const el=document.getElementById('sel-info');
+  if(!selIds.length){
+    el.innerHTML='<div style="color:var(--txt3);font-size:10px;line-height:1.8">要素をクリックで選択<br>Shift+クリック: 複数選択<br>ドラッグ: 矩形選択</div>';
+    if(!activeDimId)document.getElementById('dim-sec').style.display='none';
+    return;
+  }
+  const lc=selIds.filter(id=>segById(id)).length;
+  const pc=selIds.filter(id=>ptById(id)).length;
+  let h='';
+  if(selIds.length>1){
+    h+=`<div style="background:rgba(6,150,215,.1);border:1px solid rgba(6,150,215,.25);border-radius:2px;padding:4px 6px;margin-bottom:5px;font-size:10px;color:#7ac8f0">
+      ${selIds.length}個選択 (線:${lc} 点:${pc})<br>
+      <span style="color:var(--txt3)">→ 拘束ボタンで適用</span></div>`;
+    document.getElementById('dim-sec').style.display='none';
+  }
+  selIds.forEach(id=>{
+    const pt=ptById(id),s=segById(id);
+    if(pt)h+=`<div class="prop"><div class="pk" style="color:var(--ln-free)">点</div><div class="pv">x:${pt.x.toFixed(0)} y:${(-pt.y).toFixed(0)}${pt.fixed?' <span style="color:var(--orange)">⚓</span>':''}</div></div>`;
+    if(s)h+=`<div class="prop"><div class="pk" style="color:var(--ln-free)">線分</div><div class="pv">L:${segLen(s).toFixed(1)}${s.dim?` <span style="color:var(--dim-col)">↔${s.dimVal}</span>`:''}</div></div>`;
+  });
+  el.innerHTML=h;
+}
+
+function updConList(){
+  const el=document.getElementById('con-list');
+  if(!cons.length){el.innerHTML='<div style="color:var(--txt3);font-size:10px;padding:4px">拘束なし</div>';return;}
+  el.innerHTML=cons.map(c=>{
+    const m=CMETA[c.type]||{icon:'?',color:'#888'};
+    const pName=c.parent?(ptById(c.parent)?'点':'線'):'—';
+    const cNames=c.children.map(id=>ptById(id)?'点':'線').join(',');
+    return`<div style="display:flex;align-items:center;gap:5px;padding:3px 4px;border-bottom:1px solid #2a2a2a;font-size:10px">
+      <span style="color:${m.color};width:14px;text-align:center">${m.icon}</span>
+      <span style="color:var(--txt)">${c.type}</span>
+      <span style="color:var(--txt3);flex:1;font-size:9px;font-family:var(--mono)">${pName}→[${cNames}]</span>
+      <span style="color:var(--txt3);cursor:pointer" onclick="delCon('${c.id}')">✕</span>
+    </div>`;
+  }).join('');
+}
+
+/* 親子関係ツリー表示 */
+function updTree(){
+  const el=document.getElementById('tree-view');
+  if(!cons.length){el.innerHTML='<div style="color:var(--txt3);font-size:10px;padding:8px">拘束なし</div>';return;}
+  let h='';
+  cons.forEach(con=>{
+    const m=CMETA[con.type]||{icon:'?',color:'#888'};
+    // ルート: 拘束タイプ
+    h+=`<div style="padding:3px 6px;font-size:11px;border-bottom:1px solid #222;display:flex;align-items:center;gap:4px">
+      <span style="color:${m.color}">${m.icon}</span>
+      <b style="color:${m.color}">${con.type}</b>
+      <span style="font-size:9px;color:var(--txt3);font-family:var(--mono);margin-left:4px">#${con.id}</span>
+    </div>`;
+    // parent
+    if(con.parent){
+      const lbl=elemLabel(con.parent);
+      h+=`<div style="display:flex;align-items:center;gap:4px;padding:2px 16px;font-size:10px;color:var(--purple)">
+        <span style="color:var(--parent-edge)">▶</span>
+        <span style="font-family:var(--mono)">親: ${lbl}</span>
+      </div>`;
+    } else {
+      h+=`<div style="padding:2px 16px;font-size:10px;color:var(--txt3)">▶ 親: 世界座標</div>`;
+    }
+    // children
+    con.children.forEach(cid=>{
+      const lbl=elemLabel(cid);
+      h+=`<div style="display:flex;align-items:center;gap:4px;padding:2px 28px;font-size:10px;color:var(--txt2)">
+        <span style="color:var(--border2)">└</span>
+        <span style="color:var(--parent-edge);font-size:9px">━▶</span>
+        <span style="font-family:var(--mono)">子: ${lbl}</span>
+      </div>`;
+    });
+  });
+  el.innerHTML=h;
+}
+
+function elemLabel(id){
+  const p=ptById(id);if(p)return`点(${p.x.toFixed(0)},${(-p.y).toFixed(0)})`;
+  const s=segById(id);if(s)return`線(L:${segLen(s).toFixed(1)})`;
+  return id;
+}
+
+function delCon(id){cons=cons.filter(c=>c.id!==id);updConList();updTree();updStatus();renderAll();}
+
+function hint(msg){
+  const el=document.getElementById('bb-hint');
+  el.style.color='var(--red)';el.textContent=msg;
+  setTimeout(()=>{el.style.color='var(--blue)';el.textContent=THINT[tool]||'';},2500);
+}
+
+// ══════════════════════════════════════════════════════════
+//  エクスポート
+// ══════════════════════════════════════════════════════════
+function exportJ(){
+  const data={
+    spec:SPEC,
+    points:pts.map(p=>({id:p.id,x:Math.round(p.x),y:Math.round(p.y),fixed:p.fixed})),
+    segments:segs.map(s=>({id:s.id,p1:s.p1,p2:s.p2,dim:s.dim,dimVal:s.dimVal})),
+    constraints:cons.map(c=>({id:c.id,type:c.type,parent:c.parent,children:c.children,targets:c.targets}))
+  };
+  const b=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='sketch.json';a.click();
+}
+
+// ══════════════════════════════════════════════════════════
+//  SVG ユーティリティ
+// ══════════════════════════════════════════════════════════
+function mk(tag){return document.createElementNS('http://www.w3.org/2000/svg',tag);}
+function sa(el,attrs){for(const[k,v]of Object.entries(attrs))el.setAttribute(k,v);}
+
+// ══════════════════════════════════════════════════════════
+//  ツールチップ
+// ══════════════════════════════════════════════════════════
+document.querySelectorAll('[data-tip]').forEach(el=>{
+  el.addEventListener('mouseenter',e=>{
+    const t=document.getElementById('tip');
+    t.innerHTML=el.getAttribute('data-tip');
+    t.style.display='';
+    const r=el.getBoundingClientRect();
+    t.style.left=r.left+'px';t.style.top=(r.bottom+4)+'px';
+  });
+  el.addEventListener('mouseleave',()=>{document.getElementById('tip').style.display='none';});
+});
+
+// ══════════════════════════════════════════════════════════
+//  初期化
+// ══════════════════════════════════════════════════════════
+function init(){
+  VX=cw.clientWidth/2; VY=cw.clientHeight/2;
+  applyView();
+  setTool('line');
+  toggleSnap();  // snap ON
+
+  // サンプル: 100×80 矩形
+  const a=addPt(-50,-40),b=addPt(50,-40),c=addPt(50,40),d=addPt(-50,40);
+  addSeg(a,b);addSeg(b,c);addSeg(c,d);addSeg(d,a);
+  renderAll();updStatus();updConList();updTree();
+}
+window.addEventListener('load',init);
+window.addEventListener('resize',()=>{applyView();renderAll();});
+</script>
+</body>
+</html>
