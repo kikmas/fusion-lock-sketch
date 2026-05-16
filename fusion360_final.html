@@ -158,6 +158,55 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 
 /* ── 先行拘束維持ハイライト ── */
 /* 拘束済み要素は緑 */
+
+/* ── 過剰拘束ダイアログ ── */
+#overcon-dlg{
+  position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:900;
+  display:none;align-items:center;justify-content:center;
+  backdrop-filter:blur(4px);
+}
+#overcon-dlg .oc-box{
+  background:#1e1e2a;border:1px solid #e74c3c;border-radius:8px;
+  padding:20px 22px;min-width:360px;max-width:500px;
+  box-shadow:0 8px 40px rgba(0,0,0,.8);
+}
+#overcon-dlg .oc-head{
+  display:flex;align-items:center;gap:8px;
+  font-size:13px;font-weight:700;color:#fff;margin-bottom:10px;
+}
+#overcon-dlg .oc-head .oc-warn{font-size:18px}
+#overcon-dlg .oc-desc{
+  font-size:11px;color:#aaa;margin-bottom:14px;line-height:1.8;
+}
+#overcon-dlg .oc-conflict{
+  background:#161620;border:1px solid #333;border-radius:5px;
+  padding:10px 12px;margin-bottom:14px;font-size:10px;
+  font-family:var(--mono);line-height:2.1;
+}
+.oc-existing{color:#ff9900}   /* 既存拘束 = オレンジ */
+.oc-new{color:#4db8ff}        /* 新規拘束 = シアン */
+#overcon-dlg .oc-btns{display:flex;gap:8px;flex-direction:column}
+.oc-btn{
+  width:100%;padding:8px 12px;border-radius:4px;font-size:11px;
+  cursor:pointer;display:flex;align-items:center;gap:8px;
+  text-align:left;transition:background .12s;
+}
+.oc-btn-existing{
+  background:rgba(255,153,0,.1);border:1px solid #ff9900;color:#ff9900;
+}
+.oc-btn-existing:hover{background:rgba(255,153,0,.2)}
+.oc-btn-new{
+  background:rgba(77,184,255,.1);border:1px solid #4db8ff;color:#4db8ff;
+}
+.oc-btn-new:hover{background:rgba(77,184,255,.2)}
+.oc-btn-cancel{
+  background:transparent;border:1px solid #444;color:#666;
+}
+.oc-btn-cancel:hover{border-color:#888;color:#aaa}
+.oc-btn .oc-btn-ic{font-size:14px;flex-shrink:0}
+.oc-btn .oc-btn-txt{display:flex;flex-direction:column;gap:1px}
+.oc-btn .oc-btn-title{font-weight:600}
+.oc-btn .oc-btn-sub{font-size:9px;opacity:.7}
 </style>
 </head>
 <body style="display:flex;flex-direction:column;height:100vh">
@@ -448,6 +497,44 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 
 <div id="tip"></div>
 
+<!-- 過剰拘束ダイアログ -->
+<div id="overcon-dlg">
+  <div class="oc-box">
+    <div class="oc-head">
+      <span class="oc-warn">⚠️</span>
+      <span>過剰拘束の可能性があります</span>
+    </div>
+    <div class="oc-desc" id="oc-desc">
+      新しく適用しようとしている拘束が、既存の拘束と矛盾しています。<br>
+      どちらの拘束を優先するか選択してください。
+    </div>
+    <div class="oc-conflict" id="oc-conflict"></div>
+    <div class="oc-btns">
+      <button class="oc-btn oc-btn-existing" id="oc-keep-existing">
+        <span class="oc-btn-ic">🔒</span>
+        <span class="oc-btn-txt">
+          <span class="oc-btn-title">既存の拘束を優先（新規をキャンセル）</span>
+          <span class="oc-btn-sub">先に適用された拘束を維持します</span>
+        </span>
+      </button>
+      <button class="oc-btn oc-btn-new" id="oc-keep-new">
+        <span class="oc-btn-ic">✨</span>
+        <span class="oc-btn-txt">
+          <span class="oc-btn-title">新しい拘束を優先（既存を削除）</span>
+          <span class="oc-btn-sub">矛盾する既存拘束を削除して新規を適用します</span>
+        </span>
+      </button>
+      <button class="oc-btn oc-btn-cancel" onclick="hideOverconDlg()">
+        <span class="oc-btn-ic">✕</span>
+        <span class="oc-btn-txt">
+          <span class="oc-btn-title">キャンセル</span>
+          <span class="oc-btn-sub">どちらも適用しません</span>
+        </span>
+      </button>
+    </div>
+  </div>
+</div>
+
 <script>
 'use strict';
 // ══════════════════════════════════════════════
@@ -594,8 +681,15 @@ function toS(wx,wy){return{x:wx*VS+VX,y:wy*VS+VY}}
 function clientW(e){const r=cw.getBoundingClientRect();return toW(e.clientX-r.left,e.clientY-r.top)}
 function clientSnap(e){
   const w=clientW(e);
+  // ① 原点(0,0)への優先スナップ (既存点スナップと同じ閾値)
+  const ORIGIN_THRESH = PTHR/VS;
+  if(Math.hypot(w.x,w.y) < ORIGIN_THRESH){
+    return{x:0, y:0, snapOrigin:true};
+  }
+  // ② 既存点へのスナップ
   const n=nearPt(w.x,w.y,PTHR/VS);
   if(n)return{x:n.x,y:n.y,snapId:n.id};
+  // ③ グリッドスナップ
   if(snapOn)return{x:Math.round(w.x/SNAP)*SNAP,y:Math.round(w.y/SNAP)*SNAP};
   return w;
 }
@@ -703,15 +797,40 @@ function addSeg(p1,p2){
 // ══════════════════════════════════════════════
 //  先行拘束維持システム
 // ══════════════════════════════════════════════
+// 点が寸法拘束された線分の端点かどうか
+function _ptHasDimSeg(ptId){
+  return segs.some(s=>(s.p1===ptId||s.p2===ptId)&&s.dim);
+}
 /*
   各要素が持つ conTypes[] = 適用済み拘束の種別リスト
   ドラッグや拘束適用後に enforceAllConstraints() を呼び、
   既存の全拘束を順番に再適用する（先行拘束を維持）。
 */
+// 優先度マップ (数値が大きいほど後から適用 = 最終的に強い)
+const CON_PRIORITY = {
+  '固定':     4,
+  '寸法指定': 3,
+  '水平垂直': 3,
+  '直行':     3,
+  '並行':     2,
+  '等しい':   2,
+  '一致':     1,
+  '中点':     1,
+  '同一線上': 1,
+};
+
 function enforceAllConstraints(){
-  // 拘束を登録順に全て再適用（先行拘束が後続に上書きされないよう順番を保つ）
-  for(const con of cons){
-    enforceOne(con);
+  // 登録済み拘束を優先度順にソートしたコピーで適用
+  // (低優先度を先に、高優先度を後に適用することで高優先度が最終状態を決定)
+  const sorted = [...cons].sort((a,b)=>(CON_PRIORITY[a.type]||0)-(CON_PRIORITY[b.type]||0));
+
+  // 3パス繰り返して収束させる
+  for(let pass=0; pass<3; pass++){
+    for(const con of sorted) enforceOne(con);
+  }
+  // 最終パス: 最高優先度(固定・寸法・水平垂直・直行)を確実に上書き
+  for(const con of sorted){
+    if((CON_PRIORITY[con.type]||0)>=3) enforceOne(con);
   }
 }
 
@@ -726,9 +845,15 @@ function enforceOne(con){
       break;
     }
     case '一致':{
-      const[aid,bid]=con.targets;
+      // parent=基準点(動かない), children[0]=従属点(動く)
+      const aid=con.parent||con.targets[0];
+      const bid=con.children[0]||con.targets[1];
       const a=pById(aid),b=pById(bid);if(!a||!b)break;
-      if(!b.fixed){b.x=a.x;b.y=a.y;}else if(!a.fixed){a.x=b.x;a.y=b.y;}
+      // 基準点(a)は動かさない。従属点(b)を基準点に合わせる
+      // ただし b が固定または b の方が寸法拘束が強い場合は a を動かす
+      const bStrong = b.fixed || (_ptHasDimSeg(b.id)&&!_ptHasDimSeg(a.id));
+      if(!bStrong){b.x=a.x;b.y=a.y;}
+      else if(!a.fixed){a.x=b.x;a.y=b.y;}
       break;
     }
     case '等しい':{
@@ -933,6 +1058,116 @@ function confirmApply(){if(!pendingCon)return;pendingCon.applyFn();pendingCon=nu
 // ══════════════════════════════════════════════
 //  拘束適用 (ゴースト→確認)
 // ══════════════════════════════════════════════
+// ══════════════════════════════════════════════
+//  過剰拘束検出システム
+// ══════════════════════════════════════════════
+
+/*  拘束の「方向自由度」マップ
+    各拘束タイプが何を拘束するかを定義
+    'dir'  = 方向（角度）を拘束
+    'len'  = 長さを拘束
+    'pos'  = 位置を拘束
+*/
+const CON_DOF = {
+  '水平垂直': ['dir'],
+  '直行':     ['dir'],
+  '並行':     ['dir'],
+  '等しい':   ['len'],
+  '寸法指定': ['len'],
+  '一致':     ['pos'],
+  '固定':     ['pos','dir','len'],
+  '中点':     ['pos'],
+  '同一線上': ['pos','dir'],
+};
+
+/* 2つの拘束タイプが矛盾するかチェック */
+function isConflicting(typeA, typeB){
+  const a = CON_DOF[typeA]||[], b = CON_DOF[typeB]||[];
+  // 同じ自由度を両方拘束しようとしていれば矛盾
+  return a.some(d=>b.includes(d));
+}
+
+/* 選択要素に既に適用されている拘束のうち、新規拘束と矛盾するものを返す */
+function detectConflicts(newType){
+  const conflicts = [];
+  const targetIds = new Set(selIds);
+  // 選択要素に関わる既存拘束を収集
+  for(const con of cons){
+    const overlaps = con.targets.filter(id=>targetIds.has(id));
+    if(overlaps.length===0) continue;
+    if(con.type===newType) continue; // 同種は矛盾扱いしない（重複は別問題）
+    if(isConflicting(newType, con.type)){
+      conflicts.push(con);
+    }
+  }
+  return conflicts;
+}
+
+/* 過剰拘束ダイアログを表示 */
+let _overconNewType   = null;
+let _overconConflicts = [];
+
+function showOverconDlg(newType, conflicts){
+  _overconNewType   = newType;
+  _overconConflicts = conflicts;
+  const m = CMETA[newType]||{icon:'?',color:'#888'};
+
+  // 矛盾内容を表示
+  const conflictHtml = conflicts.map(c=>{
+    const cm = CMETA[c.type]||{icon:'?',color:'#888'};
+    const pLbl = c.parent ? (pById(c.parent)?`点`:sById(c.parent)?`線`:'要素') : '世界';
+    const cLbl = c.children.map(id=>pById(id)?'点':'線').join(', ');
+    return `<div>
+      <span class="oc-existing">${cm.icon} 既存: <b>${c.type}</b></span>
+      <span style="color:#555"> ↔ </span>
+      <span class="oc-new">${m.icon} 新規: <b>${newType}</b></span>
+      <span style="color:#555;font-size:9px"> (共通自由度: ${
+        (CON_DOF[c.type]||[]).filter(d=>(CON_DOF[newType]||[]).includes(d)).join(', ')
+      })</span>
+    </div>`;
+  }).join('');
+
+  document.getElementById('oc-conflict').innerHTML = conflictHtml;
+
+  const dlg = document.getElementById('overcon-dlg');
+  dlg.style.display = 'flex';
+
+  // ボタンイベント
+  document.getElementById('oc-keep-existing').onclick = ()=>{
+    hideOverconDlg();
+    cancelPending();
+    showBanner('🔒 既存の拘束を維持しました');
+  };
+  document.getElementById('oc-keep-new').onclick = ()=>{
+    hideOverconDlg();
+    // 矛盾する既存拘束を削除してから新規を適用
+    _overconConflicts.forEach(c=>{
+      cons = cons.filter(x=>x.id!==c.id);
+      // conCount を更新
+      c.targets.forEach(id=>{
+        const p=pById(id); if(p) p.conCount=Math.max(0,p.conCount-1);
+        const s=sById(id); if(s){
+          s.conCount=Math.max(0,s.conCount-1);
+          s.conTypes=s.conTypes.filter(t=>t!==c.type);
+        }
+      });
+    });
+    // 確認済みで実行
+    confirmApply();
+    showBanner('✨ 新しい拘束を適用しました');
+  };
+}
+
+function hideOverconDlg(){
+  document.getElementById('overcon-dlg').style.display='none';
+  _overconNewType=null; _overconConflicts=[];
+}
+
+// ESCでも閉じられるように
+document.getElementById('overcon-dlg').addEventListener('click', e=>{
+  if(e.target===document.getElementById('overcon-dlg')) hideOverconDlg();
+});
+
 function applyC(type){
   if(!selIds.length){hint('要素を先に選択してください');return;}
   const g=computeGhost(type);
@@ -942,9 +1177,21 @@ function applyC(type){
       '同一線上':'点+線分 または 線分2本を選択','固定':'要素を選択'};
     hint(m[type]||'選択を確認');return;
   }
+
+  // ── 過剰拘束チェック ──
+  const conflicts = detectConflicts(type);
+
   showGhost(type);
   pendingCon={type,applyFn:()=>execApplyC(type)};
-  document.getElementById('dlg-ok').onclick=()=>confirmApply();
+  document.getElementById('dlg-ok').onclick=()=>{
+    if(conflicts.length>0){
+      // 確認ダイアログを閉じて過剰拘束ダイアログへ
+      document.getElementById('confirm-dlg').style.display='none';
+      showOverconDlg(type, conflicts);
+    } else {
+      confirmApply();
+    }
+  };
   document.getElementById('dlg-cancel').onclick=()=>cancelPending();
 }
 
@@ -992,8 +1239,19 @@ function cHV(){
 }
 function cCo(){
   const ps=selIds.map(id=>pById(id)).filter(Boolean);if(ps.length<2)return null;
-  const[a,b]=ps;if(!b.fixed){b.x=a.x;b.y=a.y;}else if(!a.fixed){a.x=b.x;a.y=b.y;}
-  return mkCon('一致',selIds[0],[selIds[1]],[...selIds]);
+  let[a,b]=ps;
+  // 拘束数が多い方 or 寸法端点の方を「親(基準)」とし動かさない
+  const aHasDim=_ptHasDimSeg(a.id), bHasDim=_ptHasDimSeg(b.id);
+  if(!a.fixed&&!b.fixed){
+    // bの方が拘束が多い or 寸法を持つ場合はa,bを入れ替えてbを基準にする
+    if(bHasDim&&!aHasDim || (!aHasDim&&!bHasDim&&b.conCount>a.conCount)){
+      [a,b]=[b,a]; // swap: bを基準(親)にする
+    }
+  }
+  if(!b.fixed){b.x=a.x;b.y=a.y;}else if(!a.fixed){a.x=b.x;a.y=b.y;}
+  // selIds[0]を実際の親に合わせて記録
+  const parentId = a.id, childId = b.id;
+  return mkCon('一致',parentId,[childId],[parentId,childId]);
 }
 function cEq(){
   const ss=selIds.map(id=>sById(id)).filter(Boolean);if(ss.length<2)return null;
@@ -1176,7 +1434,20 @@ function renderAll(){
   segs.forEach(s=>renderSeg(s));
   pts.forEach(p=>renderPt(p));
   renderPEdges();renderDims();renderConMarks();
+  renderOriginMarker();
   updBadges();
+}
+
+function renderOriginMarker(){
+  // 原点スナップ可視マーカー（小さな菱形）
+  const R=4/VS;
+  const dm=mk('polygon');
+  sa(dm,{
+    points:`0,${-R} ${R},0 0,${R} ${-R},0`,
+    fill:'none',stroke:'#00ff88','stroke-width':.8/VS,
+    opacity:.5,'pointer-events':'none'
+  });
+  gPts.appendChild(dm);
 }
 
 function segCol(s){
@@ -1425,7 +1696,18 @@ document.addEventListener('mousemove',e=>{
     const near=nearPt(sc.x,sc.y,PTHR/VS);
     const tx=near?near.x:sc.x,ty=near?near.y:sc.y;
     const tl=mk('line');sa(tl,{x1:sp.x,y1:sp.y,x2:tx,y2:ty,stroke:'#4db8ff','stroke-width':1.2/VS,'stroke-dasharray':`${6/VS},${4/VS}`,'pointer-events':'none'});gTemp.appendChild(tl);
-    const tc=mk('circle');sa(tc,{cx:tx,cy:ty,r:5/VS,fill:'none',stroke:near?'#ffcc00':'#4db8ff','stroke-width':1/VS,'pointer-events':'none'});gTemp.appendChild(tc);
+    const sc2=clientSnap(e);
+    const snapOrg=sc2.snapOrigin;
+    const tc=mk('circle');sa(tc,{cx:tx,cy:ty,r:5/VS,fill:'none',
+      stroke:snapOrg?'#00ff88':(near?'#ffcc00':'#4db8ff'),
+      'stroke-width':(snapOrg?2:1)/VS,'pointer-events':'none'});gTemp.appendChild(tc);
+    if(snapOrg){// 原点スナップ表示：十字マーク
+      const os=8/VS;
+      ['x','y'].forEach((ax,i)=>{const l=mk('line');
+        sa(l,{x1:i?tx:tx-os,y1:i?ty-os:ty,x2:i?tx:tx+os,y2:i?ty+os:ty,
+          stroke:'#00ff88','stroke-width':1.5/VS,opacity:.8,'pointer-events':'none'});
+        gTemp.appendChild(l);});
+    }
     const lv=Math.hypot(tx-sp.x,ty-sp.y).toFixed(1);
     const lt=mk('text');sa(lt,{x:(sp.x+tx)/2+5/VS,y:(sp.y+ty)/2-5/VS,'font-size':9/VS+'px',fill:'#666','font-family':'monospace','pointer-events':'none'});lt.textContent=lv+'px';gTemp.appendChild(lt);
   }
