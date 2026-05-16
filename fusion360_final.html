@@ -220,6 +220,19 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
       <div class="rg-lbl">修正</div>
     </div>
     <div class="rsep"></div>
+    <!-- Undo/Redo -->
+    <div class="rg">
+      <div class="rg-btns">
+        <div class="rb" id="rb-undo" onclick="undo()" data-tip="元に戻す (Ctrl+Z)" style="opacity:.35;cursor:default">
+          <div class="ic">↩</div><div class="lb">Undo</div>
+        </div>
+        <div class="rb" id="rb-redo" onclick="redo()" data-tip="やり直す (Ctrl+Y)" style="opacity:.35;cursor:default">
+          <div class="ic">↪</div><div class="lb">Redo</div>
+        </div>
+      </div>
+      <div class="rg-lbl">履歴</div>
+    </div>
+    <div class="rsep"></div>
     <!-- ファイル保存 -->
     <div class="rg">
       <div class="rg-btns">
@@ -417,7 +430,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   <div>ツール:<span class="bv" id="bb-tool">選択</span></div>
   <div>Zoom:<span class="bv" id="bb-zoom">100%</span></div>
   <div>選択:<span class="bv" id="bb-sel">0</span></div>
-  <div id="bb-hint">L=線分 S=選択 D=寸法ツール | 線選択後、右クリック→寸法編集</div>
+  <div style="color:var(--purple);font-family:var(--mono)" id="bb-undo"></div>
+  <div id="bb-hint">L=線分 S=選択 D=寸法ツール | Ctrl+Z=Undo Ctrl+Y=Redo</div>
 </div>
 
 <!-- 右クリックコンテキストメニュー -->
@@ -485,6 +499,78 @@ let ghostState=null, pendingCon=null;
 let ctxTargetId=null;   // 右クリック対象ID
 
 let _id=1; const gid=()=>'E'+(++_id);
+
+// ══════════════════════════════════════════════
+//  Undo / Redo スタック
+// ══════════════════════════════════════════════
+const UNDO_MAX = 50;
+let undoStack = [];   // 過去スナップショット [{pts,segs,cons,uid}, ...]
+let redoStack = [];   // Undo後の未来スナップショット
+
+function snapshot(){
+  // 深コピーを作ってスタックに積む
+  const s = {
+    pts:  pts.map(p=>({...p})),
+    segs: segs.map(s=>({...s, conTypes:[...(s.conTypes||[])]})),
+    cons: cons.map(c=>({...c, children:[...c.children], targets:[...c.targets]})),
+    uid:  _id,
+  };
+  undoStack.push(s);
+  if(undoStack.length > UNDO_MAX) undoStack.shift();
+  redoStack = [];   // 新しい操作でRedoスタックはクリア
+  updUndoUI();
+}
+
+function undo(){
+  if(!undoStack.length) return;
+  // 現在状態をRedoスタックへ
+  redoStack.push({
+    pts:  pts.map(p=>({...p})),
+    segs: segs.map(s=>({...s, conTypes:[...(s.conTypes||[])]})),
+    cons: cons.map(c=>({...c, children:[...c.children], targets:[...c.targets]})),
+    uid:  _id,
+  });
+  const prev = undoStack.pop();
+  applySnapshot(prev);
+  updUndoUI();
+  showBanner('↩ Undo');
+}
+
+function redo(){
+  if(!redoStack.length) return;
+  undoStack.push({
+    pts:  pts.map(p=>({...p})),
+    segs: segs.map(s=>({...s, conTypes:[...(s.conTypes||[])]})),
+    cons: cons.map(c=>({...c, children:[...c.children], targets:[...c.targets]})),
+    uid:  _id,
+  });
+  const next = redoStack.pop();
+  applySnapshot(next);
+  updUndoUI();
+  showBanner('↪ Redo');
+}
+
+function applySnapshot(s){
+  pts  = s.pts.map(p=>({...p}));
+  segs = s.segs.map(sg=>({...sg, conTypes:[...(sg.conTypes||[])]}));
+  cons = s.cons.map(c=>({...c, children:[...c.children], targets:[...c.targets]}));
+  _id  = s.uid;
+  selIds=[]; activeDimId=null;
+  clearGhost(); cancelPending(); closeCanvasDim();
+  document.getElementById('dim-sec').style.display='none';
+  renderAll(); updSelInfo(); updConList(); updTree(); updStatus();
+}
+
+function updUndoUI(){
+  // リボンボタンのon/off
+  const bu = document.getElementById('rb-undo');
+  const br = document.getElementById('rb-redo');
+  if(bu){ bu.style.opacity = undoStack.length ? '1' : '0.35'; bu.style.cursor = undoStack.length ? 'pointer' : 'default'; }
+  if(br){ br.style.opacity = redoStack.length ? '1' : '0.35'; br.style.cursor = redoStack.length ? 'pointer' : 'default'; }
+  // Undoスタック深さをBottomBarに表示
+  const el = document.getElementById('bb-undo');
+  if(el) el.textContent = undoStack.length ? `Undo:${undoStack.length}` : '';
+}
 
 // SVG layers
 const svg   =document.getElementById('cv');
@@ -602,11 +688,13 @@ function toggleSnap(){
 //  要素追加
 // ══════════════════════════════════════════════
 function addPt(x,y,fixed=false){
+  snapshot();
   const id=gid();
   pts.push({id,x,y,fixed,conCount:0});
   updStatus();return id;
 }
 function addSeg(p1,p2){
+  snapshot();
   const id=gid();
   segs.push({id,p1,p2,dim:false,dimVal:0,conCount:0,conTypes:[]});
   updStatus();return id;
@@ -861,6 +949,7 @@ function applyC(type){
 }
 
 function execApplyC(type){
+  snapshot();
   let con=null;
   switch(type){
     case '水平垂直':  con=cHV();     break;
@@ -1014,6 +1103,7 @@ function closeCanvasDim(){
 
 function commitDim(segId,val){
   if(isNaN(val)||val<=0){hint('有効な数値を入力してください');return;}
+  snapshot();
   const s=sById(segId);if(!s)return;
   s.dim=true;s.dimVal=val;
   // 先行拘束を維持しながら寸法を適用
@@ -1241,7 +1331,7 @@ function onPtLMD(e,pt){
     clearGhost();cancelPending();hideCtxMenu();
     if(e.shiftKey){if(!selIds.includes(pt.id)&&selIds.length<2)selIds.push(pt.id);}
     else selIds=[pt.id];
-    if(!pt.fixed){dragPt=pt;const w=clientW(e);dragOX=w.x-pt.x;dragOY=w.y-pt.y;}
+    if(!pt.fixed){snapshot();dragPt=pt;const w=clientW(e);dragOX=w.x-pt.x;dragOY=w.y-pt.y;}
     renderAll();updSelInfo();
   }
 }
@@ -1420,6 +1510,8 @@ document.addEventListener('keyup',e=>{if(e.key===' ')panning=false;});
 //  削除
 // ══════════════════════════════════════════════
 function deleteSelected(){
+  if(!selIds.length) return;
+  snapshot();
   const rem=new Set(selIds);
   segs=segs.filter(s=>!rem.has(s.id));
   pts=pts.filter(p=>{if(!rem.has(p.id))return true;segs=segs.filter(s=>s.p1!==p.id&&s.p2!==p.id);return false;});
@@ -1430,6 +1522,7 @@ function deleteSelected(){
 }
 function clearAll(){
   if(!confirm('全消去しますか？'))return;
+  snapshot();
   pts=[];segs=[];cons=[];selIds=[];activeDimId=null;
   clearGhost();cancelPending();closeCanvasDim();
   document.getElementById('dim-sec').style.display='none';
@@ -1665,11 +1758,13 @@ _cw.addEventListener('drop', e=>{
   else showBanner('⚠ .json ファイルのみ対応しています', true);
 });
 
-/* ── キーボードショートカット Ctrl+S / Ctrl+O ── */
+/* ── キーボードショートカット Ctrl+S / Ctrl+O / Ctrl+Z / Ctrl+Y ── */
 document.addEventListener('keydown', e=>{
   if(e.target.tagName==='INPUT') return;
-  if((e.ctrlKey||e.metaKey) && e.key==='s'){ e.preventDefault(); saveSketch(); }
-  if((e.ctrlKey||e.metaKey) && e.key==='o'){ e.preventDefault(); document.getElementById('file-input').click(); }
+  if((e.ctrlKey||e.metaKey) && e.key==='s'){ e.preventDefault(); saveSketch(); return; }
+  if((e.ctrlKey||e.metaKey) && e.key==='o'){ e.preventDefault(); document.getElementById('file-input').click(); return; }
+  if((e.ctrlKey||e.metaKey) && e.key==='z'){ e.preventDefault(); undo(); return; }
+  if((e.ctrlKey||e.metaKey) && (e.key==='y'||(e.shiftKey&&e.key==='Z'))){ e.preventDefault(); redo(); return; }
 });
 
 // ツールチップ
