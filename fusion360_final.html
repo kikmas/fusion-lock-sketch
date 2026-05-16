@@ -892,7 +892,15 @@ function enforceOne(con){
       const a=sById(aid),b=sById(bid);if(!a||!b)break;
       const p1a=pById(a.p1),p2a=pById(a.p2),p1b=pById(b.p1),p2b=pById(b.p2);if(!p1a||!p2a||!p1b||!p2b)break;
       const adx=p2a.x-p1a.x,ady=p2a.y-p1a.y,al=Math.hypot(adx,ady)||1,lb=sLen(b);
-      if(!p2b.fixed){p2b.x=p1b.x+(-ady/al)*lb;p2b.y=p1b.y+(adx/al)*lb;}break;
+      // 子の現在方向ベクトル
+      const bdx=p2b.x-p1b.x, bdy=p2b.y-p1b.y;
+      // 法線候補は (-ady,adx) と (ady,-adx) の2方向
+      // 内積が正 = 同じ側 → 内積が大きい(近い)方を選ぶ
+      const dot1=(-ady)*bdx+(adx)*bdy;
+      const dot2=( ady)*bdx+(-adx)*bdy;
+      const nx= dot1>=dot2 ? -ady/al :  ady/al;
+      const ny= dot1>=dot2 ?  adx/al : -adx/al;
+      if(!p2b.fixed){p2b.x=p1b.x+nx*lb;p2b.y=p1b.y+ny*lb;}break;
     }
     case '並行':{
       const[aid,bid]=con.targets;
@@ -986,7 +994,12 @@ function computeGhost(type){
       const[a,b]=ss;
       const p1a=gp(a.p1),p2a=gp(a.p2),p1b=gp(b.p1),p2b=gp(b.p2);if(!p1a||!p2a||!p1b||!p2b)break;
       const adx=p2a.x-p1a.x,ady=p2a.y-p1a.y,al=Math.hypot(adx,ady)||1,lb=glen(b);
-      if(!p2b.fixed){p2b.x=p1b.x+(-ady/al)*lb;p2b.y=p1b.y+(adx/al)*lb;}
+      const bdx=p2b.x-p1b.x, bdy=p2b.y-p1b.y;
+      const dot1=(-ady)*bdx+(adx)*bdy;
+      const dot2=( ady)*bdx+(-adx)*bdy;
+      const nx= dot1>=dot2 ? -ady/al :  ady/al;
+      const ny= dot1>=dot2 ?  adx/al : -adx/al;
+      if(!p2b.fixed){p2b.x=p1b.x+nx*lb;p2b.y=p1b.y+ny*lb;}
       parentLbl=nameE(selIds[0]);childLbl=nameE(selIds[1]);ok=true;break;
     }
     case '並行':{
@@ -1289,7 +1302,13 @@ function cPerp(){
   const[a,b]=ss;
   const p1a=pById(a.p1),p2a=pById(a.p2),p1b=pById(b.p1),p2b=pById(b.p2);if(!p1a||!p2a||!p1b||!p2b)return null;
   const adx=p2a.x-p1a.x,ady=p2a.y-p1a.y,al=Math.hypot(adx,ady)||1,lb=sLen(b);
-  if(!p2b.fixed){p2b.x=p1b.x+(-ady/al)*lb;p2b.y=p1b.y+(adx/al)*lb;}
+  // 子の現在方向に近い法線方向を選択して原型を保つ
+  const bdx=p2b.x-p1b.x, bdy=p2b.y-p1b.y;
+  const dot1=(-ady)*bdx+(adx)*bdy;
+  const dot2=( ady)*bdx+(-adx)*bdy;
+  const nx= dot1>=dot2 ? -ady/al :  ady/al;
+  const ny= dot1>=dot2 ?  adx/al : -adx/al;
+  if(!p2b.fixed){p2b.x=p1b.x+nx*lb;p2b.y=p1b.y+ny*lb;}
   return mkCon('直行',selIds[0],[selIds[1]],[...selIds]);
 }
 function cPara(){
