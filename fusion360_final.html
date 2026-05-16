@@ -102,11 +102,34 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 #ghost-panel .gp-hint b{color:var(--green)}
 
 /* 確認ダイアログ */
-#confirm-dlg{position:absolute;background:rgba(22,22,30,.97);border:1px solid #555;border-radius:7px;padding:14px 16px;z-index:220;display:none;min-width:230px;box-shadow:0 8px 36px rgba(0,0,0,.75);backdrop-filter:blur(8px)}
-#confirm-dlg .dlg-head{font-size:12px;font-weight:700;color:#fff;margin-bottom:8px;display:flex;align-items:center;gap:7px}
-#confirm-dlg .dlg-body{font-size:10px;color:#888;margin-bottom:10px;line-height:1.9}
+#confirm-dlg{
+  position:absolute;
+  background:rgba(22,22,30,.97);border:1px solid #555;border-radius:7px;
+  padding:0 0 14px 0;   /* ヘッダー分のpadding-topはヘッダー自体が持つ */
+  z-index:220;display:none;min-width:230px;
+  box-shadow:0 8px 36px rgba(0,0,0,.75);backdrop-filter:blur(8px);
+  user-select:none;
+}
+#confirm-dlg .dlg-head{
+  font-size:12px;font-weight:700;color:#fff;
+  padding:10px 14px 8px 14px;
+  margin-bottom:0;
+  display:flex;align-items:center;gap:7px;
+  cursor:grab;                         /* ドラッグ可能を示す */
+  border-bottom:1px solid #333;
+  border-radius:7px 7px 0 0;
+  background:rgba(255,255,255,.04);
+  transition:background .1s;
+}
+#confirm-dlg .dlg-head:hover{background:rgba(255,255,255,.08)}
+#confirm-dlg .dlg-head.dragging{cursor:grabbing;background:rgba(6,150,215,.12)}
+#confirm-dlg .dlg-head .dlg-drag-hint{
+  margin-left:auto;font-size:9px;color:#444;letter-spacing:.04em;
+  font-family:var(--mono);
+}
+#confirm-dlg .dlg-body{font-size:10px;color:#888;margin-bottom:10px;line-height:1.9;padding:10px 14px 0 14px;}
 .dlg-par{color:var(--col1)}.dlg-chd{color:var(--col2)}
-#confirm-dlg .dlg-btns{display:flex;gap:6px}
+#confirm-dlg .dlg-btns{display:flex;gap:6px;padding:0 14px;}
 .dlg-ok{flex:1;background:rgba(6,150,215,.2);border:1px solid var(--blue);color:#fff;font-size:11px;padding:5px;border-radius:3px;cursor:pointer}
 .dlg-ok:hover{background:rgba(6,150,215,.4)}
 .dlg-cancel{flex:1;background:transparent;border:1px solid #444;color:#888;font-size:11px;padding:5px;border-radius:3px;cursor:pointer}
@@ -401,9 +424,12 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
       </div>
     </div>
 
-    <!-- 確認ダイアログ -->
+    <!-- 確認ダイアログ (ドラッグで移動可能) -->
     <div id="confirm-dlg">
-      <div class="dlg-head"><span id="dlg-icon">⊥</span>&nbsp;<span id="dlg-title">直行拘束を適用</span></div>
+      <div class="dlg-head" id="dlg-head">
+        <span id="dlg-icon">⊥</span>&nbsp;<span id="dlg-title">直行拘束を適用</span>
+        <span class="dlg-drag-hint">⠿ ドラッグで移動</span>
+      </div>
       <div class="dlg-body" id="dlg-body"></div>
       <div class="dlg-btns">
         <button class="dlg-ok"     id="dlg-ok">✓ 適用 (Enter)</button>
@@ -2057,6 +2083,54 @@ document.querySelectorAll('[data-tip]').forEach(el=>{
   });
   el.addEventListener('mouseleave',()=>document.getElementById('tip').style.display='none');
 });
+
+// ══════════════════════════════════════════════
+//  ダイアログ ドラッグ移動
+// ══════════════════════════════════════════════
+(function initDlgDrag(){
+  const dlg  = document.getElementById('confirm-dlg');
+  const head = document.getElementById('dlg-head');
+  let dragging = false;
+  let startX=0, startY=0, origLeft=0, origTop=0;
+
+  head.addEventListener('mousedown', e=>{
+    if(e.button!==0) return;
+    e.stopPropagation();
+    dragging = true;
+    head.classList.add('dragging');
+
+    // 現在位置を取得 (left/top は px 文字列なのでparseIntで数値化)
+    origLeft = parseInt(dlg.style.left)||0;
+    origTop  = parseInt(dlg.style.top) ||0;
+    startX   = e.clientX;
+    startY   = e.clientY;
+    document.body.style.userSelect='none';
+  });
+
+  document.addEventListener('mousemove', e=>{
+    if(!dragging) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    let newLeft = origLeft + dx;
+    let newTop  = origTop  + dy;
+
+    // 画面外に出ないようにクランプ
+    const maxLeft = window.innerWidth  - dlg.offsetWidth  - 8;
+    const maxTop  = window.innerHeight - dlg.offsetHeight - 8;
+    newLeft = Math.max(8, Math.min(newLeft, maxLeft));
+    newTop  = Math.max(8, Math.min(newTop,  maxTop));
+
+    dlg.style.left = newLeft + 'px';
+    dlg.style.top  = newTop  + 'px';
+  });
+
+  document.addEventListener('mouseup', e=>{
+    if(!dragging) return;
+    dragging = false;
+    head.classList.remove('dragging');
+    document.body.style.userSelect='';
+  });
+})();
 
 // SVGユーティリティ
 function mk(t){return document.createElementNS('http://www.w3.org/2000/svg',t)}
