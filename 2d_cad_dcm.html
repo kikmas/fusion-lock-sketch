@@ -1,0 +1,1180 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>2D CAD — 拘束スケッチソルバー</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden;background:#0e1016;font-family:'Courier New',monospace;color:#b8bfcc}
+#app{display:flex;flex-direction:column;height:100vh}
+
+/* ── Toolbar ── */
+#toolbar{
+  display:flex;align-items:center;gap:1px;padding:5px 8px;
+  background:#12151e;border-bottom:1px solid #1c2030;flex-shrink:0;flex-wrap:wrap
+}
+.tg{display:flex;gap:1px;padding:0 6px;border-right:1px solid #1c2030}
+.tg:last-child{border:none}
+.tb{
+  background:transparent;border:1px solid transparent;color:#6a7488;
+  padding:4px 10px;cursor:pointer;font-family:'Courier New',monospace;
+  font-size:10.5px;border-radius:3px;transition:all .1s;white-space:nowrap
+}
+.tb:hover{background:#1c2030;color:#b8bfcc;border-color:#252d3d}
+.tb.on{background:#162040;color:#4a8cf0;border-color:#1e3870}
+.tb.red{color:#e06a50}.tb.red:hover{background:#241810;border-color:#5a2010}
+.tb.grn{color:#4a9a5a}.tb.grn:hover{background:#102010;border-color:#205020}
+.tg-label{font-size:9px;color:#304060;letter-spacing:1px;padding:0 2px;align-self:center}
+
+/* ── Main ── */
+#mid{display:flex;flex:1;overflow:hidden;min-height:0}
+#cw{flex:1;position:relative;overflow:hidden;background:#0e1016}
+canvas{position:absolute;top:0;left:0;cursor:crosshair}
+
+/* ── Sidebar ── */
+#sb{
+  width:215px;background:#12151e;border-left:1px solid #1c2030;
+  display:flex;flex-direction:column;font-size:10.5px;overflow:hidden;flex-shrink:0
+}
+.ss{padding:9px 11px;border-bottom:1px solid #1c2030}
+.st{font-size:9px;color:#404858;text-transform:uppercase;letter-spacing:1px;margin-bottom:7px}
+.sr{display:flex;justify-content:space-between;align-items:center;padding:2px 0;color:#6a7488}
+.sv{color:#b8bfcc}
+.db{height:3px;background:#1c2030;border-radius:2px;margin-top:4px}
+.df{height:100%;border-radius:2px;transition:width .25s,background .25s}
+
+/* Constraint list */
+#cl-wrap{flex:1;overflow-y:auto;padding:8px 11px}
+.cl{
+  display:flex;align-items:center;gap:5px;padding:3px 4px;
+  border-radius:2px;cursor:pointer;color:#6a7488;font-size:10px;
+  border:1px solid transparent
+}
+.cl:hover{background:#1c2030;color:#b8bfcc;border-color:#252d3d}
+.cl.sel-con{border-color:#1e3870;background:#0e1830}
+.cd{width:5px;height:5px;border-radius:50%;flex-shrink:0}
+.cdel{
+  background:transparent;border:none;color:#603028;cursor:pointer;
+  font-size:10px;padding:0 2px;font-family:'Courier New',monospace;
+  margin-left:auto;flex-shrink:0
+}
+.cdel:hover{color:#e06a50}
+
+/* ── Status bar ── */
+#stbar{
+  padding:4px 11px;background:#090b10;border-top:1px solid #1c2030;
+  font-size:9.5px;color:#404858;display:flex;gap:14px;flex-shrink:0;align-items:center
+}
+.ok{color:#3a8a50}.warn{color:#c08020}.err{color:#c03020}
+
+/* ── Tooltip ── */
+#tip{
+  position:fixed;background:#12151e;border:1px solid #252d3d;
+  padding:3px 8px;font-size:9.5px;color:#b8bfcc;
+  pointer-events:none;display:none;z-index:999;
+  font-family:'Courier New',monospace;border-radius:3px
+}
+
+/* ── Key hints ── */
+.ki{font-size:9px;color:#2e3848;line-height:1.7}
+.ki b{color:#404858;font-weight:normal}
+</style>
+</head>
+<body>
+<div id="app">
+
+<!-- ━━ Toolbar ━━ -->
+<div id="toolbar">
+  <div class="tg">
+    <span class="tg-label">DCM·CAD</span>
+  </div>
+
+  <!-- Draw tools -->
+  <div class="tg">
+    <button class="tb on" id="btn-select" onclick="setTool('select')" title="選択 [S]">▶ 選択</button>
+    <button class="tb" id="btn-point"  onclick="setTool('point')"  title="点 [P]">· 点</button>
+    <button class="tb" id="btn-line"   onclick="setTool('line')"   title="線分 [L]">/ 線分</button>
+    <button class="tb" id="btn-circle" onclick="setTool('circle')" title="円 [C]">○ 円</button>
+    <button class="tb" id="btn-arc"    onclick="setTool('arc')"    title="円弧 [A]">⌒ 円弧</button>
+  </div>
+
+  <!-- Constraints -->
+  <div class="tg">
+    <button class="tb" onclick="addCon('coincident')"   title="一致 — 2点・端点を重ねる">= 一致</button>
+    <button class="tb" onclick="addCon('horizontal')"   title="水平 — 線を水平に">— 水平</button>
+    <button class="tb" onclick="addCon('vertical')"     title="垂直 — 線を垂直に">| 垂直</button>
+    <button class="tb" onclick="addCon('parallel')"     title="平行 — 2線を平行に">∥ 平行</button>
+    <button class="tb" onclick="addCon('perpendicular'" title="直交 — 2線を直角に">⊥ 直交</button>
+    <button class="tb" onclick="addCon('midpoint')"     title="中点 — 点を線の中央に">⊙ 中点</button>
+    <button class="tb" onclick="addCon('symmetric')"    title="対称 — 点を線で対称に">⇔ 対称</button>
+    <button class="tb" onclick="addCon('distance')"     title="距離拘束">↔ 距離</button>
+    <button class="tb" onclick="addCon('angle')"        title="角度拘束">∠ 角度</button>
+    <button class="tb" onclick="addCon('fix')"          title="固定 — 位置を固定">⚓ 固定</button>
+  </div>
+
+  <!-- Actions -->
+  <div class="tg">
+    <button class="tb red" onclick="delSel()">✕ 削除</button>
+    <button class="tb red" onclick="clearAll()">⊘ 全消去</button>
+    <button class="tb grn" onclick="loadDemo()">▷ デモ</button>
+  </div>
+</div>
+
+<!-- ━━ Main ━━ -->
+<div id="mid">
+  <div id="cw"><canvas id="cv"></canvas></div>
+
+  <div id="sb">
+    <!-- DOF -->
+    <div class="ss">
+      <div class="st">自由度 ステータス</div>
+      <div class="sr"><span>残り自由度</span><span class="sv" id="si-dof">0</span></div>
+      <div class="db"><div class="df" id="dof-f" style="width:0%;background:#2e6ab8"></div></div>
+      <div class="sr" style="margin-top:6px"><span>ジオメトリ数</span><span class="sv" id="si-g">0</span></div>
+      <div class="sr"><span>拘束数</span><span class="sv" id="si-c">0</span></div>
+      <div class="sr"><span>状態</span><span class="sv" id="si-s">—</span></div>
+    </div>
+
+    <!-- Selection -->
+    <div class="ss">
+      <div class="st">選択情報</div>
+      <div id="sel-info" style="color:#404858;font-size:10px;line-height:1.6">未選択</div>
+    </div>
+
+    <!-- Constraint list -->
+    <div class="ss" style="flex:1;overflow:hidden;display:flex;flex-direction:column;padding-bottom:4px">
+      <div class="st">拘束リスト</div>
+      <div id="cl-wrap"></div>
+    </div>
+
+    <!-- Key hints -->
+    <div class="ss">
+      <div class="ki">
+        <b>描画:</b> L=線分  C=円  A=円弧  P=点  S=選択<br>
+        <b>拘束:</b> Shift+クリックで複数選択後に適用<br>
+        <b>操作:</b> ドラッグ=移動  スクロール=ズーム<br>
+        <b>　　</b> Alt+ドラッグ=パン  Del=削除  Esc=解除<br>
+        <b>ショートカット:</b> H=水平  V=垂直  F=固定
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ━━ Status bar ━━ -->
+<div id="stbar">
+  <span id="st-tool">ツール: 選択</span>
+  <span id="st-msg">ジオメトリを選択するか新しい図形を描画してください</span>
+  <span id="st-it" style="margin-left:auto;font-size:9px"></span>
+</div>
+</div>
+<div id="tip"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+//  State
+// ═══════════════════════════════════════════════════════════
+const cv  = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+let W = 0, H = 0;
+
+let geoms = [];   // {id, type:'point'|'line'|'circle'|'arc', params:[...]}
+let cons  = [];   // {id, type, g:[geomIds...], v:value|obj, eA, eB}
+let sel   = [];   // selected geom ids
+let tool  = 'select';
+let drawSt = null;
+let hov    = null;
+let snap   = null;
+let idc    = 0;
+
+// Camera
+let camX = 0, camY = 0, camS = 1.0;
+let panning = false, panSt = null;
+let dragging = false, dragSt = null, geomBak = null;
+
+const nid = () => ++idc;
+
+// ═══════════════════════════════════════════════════════════
+//  Camera helpers
+// ═══════════════════════════════════════════════════════════
+function toS(wx, wy) { return [wx * camS + camX + W/2, -wy * camS + camY + H/2]; }
+function toW(sx, sy) { return [(sx - W/2 - camX) / camS, -(sy - H/2 - camY) / camS]; }
+
+// ═══════════════════════════════════════════════════════════
+//  Geometry math
+// ═══════════════════════════════════════════════════════════
+function dist(ax, ay, bx, by) { return Math.sqrt((ax-bx)**2 + (ay-by)**2); }
+
+function segDist(px, py, ax, ay, bx, by) {
+  const dx = bx-ax, dy = by-ay, l2 = dx*dx + dy*dy;
+  if (l2 < 1e-10) return dist(px, py, ax, ay);
+  let t = ((px-ax)*dx + (py-ay)*dy) / l2;
+  t = Math.max(0, Math.min(1, t));
+  return dist(px, py, ax + t*dx, ay + t*dy);
+}
+
+function angDeg(ax, ay, bx, by) { return Math.atan2(by-ay, bx-ax) * 180 / Math.PI; }
+
+// DOF per geometry type
+function gDOF(g) {
+  return {point:2, line:4, circle:3, arc:5}[g.type] || 0;
+}
+
+// DOF removed per constraint type
+const CON_DOF = {
+  coincident:2, horizontal:1, vertical:1, parallel:1,
+  perpendicular:1, midpoint:2, symmetric:2, distance:1, angle:1, fix:2
+};
+
+// Endpoint extraction for coincident
+function getEP(g, end, pa) {
+  if (g.type === 'point') return [pa[0], pa[1]];
+  if (g.type === 'line')  return end === 0 ? [pa[0], pa[1]] : [pa[2], pa[3]];
+  return [pa[0], pa[1]]; // circle/arc → center
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Solver — Levenberg-Marquardt / Gauss-Newton
+// ═══════════════════════════════════════════════════════════
+function getAllParams() {
+  const p = [], off = {};
+  for (const g of geoms) { off[g.id] = p.length; for (const v of g.params) p.push(v); }
+  return { p, off };
+}
+
+function residuals(params, offsets) {
+  const res = [];
+
+  for (const c of cons) {
+    const gA = geoms.find(g => g.id === c.g[0]);
+    const gB = c.g[1] ? geoms.find(g => g.id === c.g[1]) : null;
+    const gC = c.g[2] ? geoms.find(g => g.id === c.g[2]) : null;
+    if (!gA) continue;
+
+    const oA = offsets[gA.id];
+    const pa = params.slice(oA, oA + gA.params.length);
+    const pb = gB ? params.slice(offsets[gB.id], offsets[gB.id] + gB.params.length) : null;
+    const pc = gC ? params.slice(offsets[gC.id], offsets[gC.id] + gC.params.length) : null;
+
+    switch (c.type) {
+
+      case 'fix': {
+        if (gA.type === 'point') {
+          res.push(pa[0] - c.v.x, pa[1] - c.v.y);
+        } else if (gA.type === 'line') {
+          res.push(pa[0] - c.v.x0, pa[1] - c.v.y0, pa[2] - c.v.x1, pa[3] - c.v.y1);
+        }
+        break;
+      }
+
+      case 'horizontal': {
+        if (gA.type === 'line') res.push(pa[1] - pa[3]);
+        else if (gB && gA.type === 'point' && gB.type === 'point') res.push(pa[1] - pb[1]);
+        break;
+      }
+
+      case 'vertical': {
+        if (gA.type === 'line') res.push(pa[0] - pa[2]);
+        else if (gB && gA.type === 'point' && gB.type === 'point') res.push(pa[0] - pb[0]);
+        break;
+      }
+
+      case 'coincident': {
+        if (!gB) break;
+        const [ax, ay] = getEP(gA, c.eA, pa);
+        const [bx, by] = getEP(gB, c.eB, pb);
+        res.push(ax - bx, ay - by);
+        break;
+      }
+
+      case 'parallel': {
+        if (!gB || gA.type !== 'line' || gB.type !== 'line') break;
+        const dxA = pa[2]-pa[0], dyA = pa[3]-pa[1];
+        const dxB = pb[2]-pb[0], dyB = pb[3]-pb[1];
+        res.push(dxA * dyB - dyA * dxB);
+        break;
+      }
+
+      case 'perpendicular': {
+        if (!gB || gA.type !== 'line' || gB.type !== 'line') break;
+        const dxA = pa[2]-pa[0], dyA = pa[3]-pa[1];
+        const dxB = pb[2]-pb[0], dyB = pb[3]-pb[1];
+        res.push(dxA * dxB + dyA * dyB);
+        break;
+      }
+
+      case 'midpoint': {
+        if (!gB || gA.type !== 'line' || gB.type !== 'point') break;
+        res.push((pa[0]+pa[2])/2 - pb[0], (pa[1]+pa[3])/2 - pb[1]);
+        break;
+      }
+
+      case 'symmetric': {
+        // g[0]=点A, g[1]=点B, g[2]=対称軸(線分)
+        if (!gB || !gC) break;
+        if (gA.type !== 'point' || gB.type !== 'point' || gC.type !== 'line') break;
+        const dxL = pc[2]-pc[0], dyL = pc[3]-pc[1];
+        const lenL = Math.sqrt(dxL*dxL + dyL*dyL);
+        if (lenL < 1e-10) break;
+        const nx = dyL/lenL, ny = -dxL/lenL; // 軸の法線
+        const tx = dxL/lenL, ty = dyL/lenL;  // 軸の接線
+        // 中点が対称軸上にある → 法線方向の残差
+        const mpx = (pa[0]+pb[0])/2 - pc[0];
+        const mpy = (pa[1]+pb[1])/2 - pc[1];
+        res.push(mpx*nx + mpy*ny); // 法線方向成分=0
+        // AとBの差分が軸に垂直 → 接線方向成分=0
+        const dax = pa[0]-pb[0], day = pa[1]-pb[1];
+        res.push(dax*tx + day*ty); // 接線方向成分=0
+        break;
+      }
+
+      case 'distance': {
+        if (gA.type === 'line') {
+          const dx = pa[2]-pa[0], dy = pa[3]-pa[1];
+          res.push(Math.sqrt(dx*dx + dy*dy) - c.v);
+        } else if (gB && gA.type === 'point' && gB.type === 'point') {
+          res.push(dist(pa[0], pa[1], pb[0], pb[1]) - c.v);
+        }
+        break;
+      }
+
+      case 'angle': {
+        if (!gB || gA.type !== 'line' || gB.type !== 'line') break;
+        const dxA = pa[2]-pa[0], dyA = pa[3]-pa[1];
+        const dxB = pb[2]-pb[0], dyB = pb[3]-pb[1];
+        const lA = Math.sqrt(dxA*dxA + dyA*dyA);
+        const lB = Math.sqrt(dxB*dxB + dyB*dyB);
+        if (lA < 1e-10 || lB < 1e-10) break;
+        const target = Math.cos(c.v * Math.PI / 180);
+        res.push((dxA*dxB + dyA*dyB) / (lA*lB) - target);
+        break;
+      }
+    }
+  }
+  return res;
+}
+
+function numJac(params, offsets, r0) {
+  const n = params.length, m = r0.length;
+  const J = Array.from({length: m}, () => new Float64Array(n));
+  const h = 1e-6;
+  for (let j = 0; j < n; j++) {
+    params[j] += h;
+    const r1 = residuals(params, offsets);
+    params[j] -= h;
+    for (let i = 0; i < m; i++) J[i][j] = (r1[i] - r0[i]) / h;
+  }
+  return J;
+}
+
+function gaussSolve(A, b, n) {
+  const M = A.map((r, i) => { const row = [...r]; row.push(b[i]); return row; });
+  for (let i = 0; i < n; i++) {
+    let mv = Math.abs(M[i][i]), mr = i;
+    for (let j = i+1; j < n; j++) if (Math.abs(M[j][i]) > mv) { mv = Math.abs(M[j][i]); mr = j; }
+    if (mv < 1e-13) continue;
+    [M[i], M[mr]] = [M[mr], M[i]];
+    const pv = M[i][i];
+    for (let j = i; j <= n; j++) M[i][j] /= pv;
+    for (let j = 0; j < n; j++) if (j !== i) {
+      const f = M[j][i];
+      for (let k = i; k <= n; k++) M[j][k] -= f * M[i][k];
+    }
+  }
+  return M.map(r => r[n]);
+}
+
+function solve() {
+  if (!geoms.length) return { iters: 0, rms: 0 };
+
+  // Snapshot fix values on first solve
+  for (const c of cons) {
+    if (c.type === 'fix' && !c.v) {
+      const g = geoms.find(x => x.id === c.g[0]);
+      if (!g) continue;
+      if (g.type === 'point') c.v = { x: g.params[0], y: g.params[1] };
+      else if (g.type === 'line') c.v = { x0: g.params[0], y0: g.params[1], x1: g.params[2], y1: g.params[3] };
+    }
+  }
+
+  let { p: params, off: offsets } = getAllParams();
+  const n = params.length;
+  let rms = 0, iters = 0;
+
+  for (let iter = 0; iter < 80; iter++) {
+    const r0 = residuals(params, offsets);
+    if (!r0.length) break;
+    rms = Math.sqrt(r0.reduce((s, r) => s + r*r, 0) / r0.length);
+    if (rms < 1e-9) { iters = iter; break; }
+
+    const J = numJac(params, offsets, r0);
+    const m = r0.length;
+    const JtJ = Array.from({length: n}, () => new Float64Array(n));
+    const Jtr = new Float64Array(n);
+    const lam = 1e-3 * (1 + iter * 0.04);
+
+    for (let i = 0; i < m; i++) {
+      for (let j = 0; j < n; j++) {
+        Jtr[j] -= J[i][j] * r0[i];
+        for (let k = 0; k < n; k++) JtJ[j][k] += J[i][j] * J[i][k];
+      }
+    }
+    for (let j = 0; j < n; j++) JtJ[j][j] += lam;
+
+    const dx = gaussSolve(JtJ, [...Jtr], n);
+    if (!dx) break;
+
+    const maxDx = Math.max(...dx.map(Math.abs), 1e-12);
+    const step = Math.min(0.8, 20 / maxDx);
+    for (let j = 0; j < n; j++) params[j] += step * dx[j];
+    iters = iter + 1;
+  }
+
+  const rf = residuals(params, offsets);
+  rms = rf.length ? Math.sqrt(rf.reduce((s,r) => s+r*r, 0) / rf.length) : 0;
+
+  for (const g of geoms) {
+    const o = offsets[g.id];
+    g.params = params.slice(o, o + g.params.length);
+  }
+  return { iters, rms };
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Rendering
+// ═══════════════════════════════════════════════════════════
+const C = {
+  bg:'#0e1016', grid:'#131520', gridM:'#181c28', ax:'#182038',
+  geom:'#2d69b5', geomS:'#4a8cf0', geomH:'#3878d0',
+  pt:'#3a8a5a', ptS:'#6dcf8a', ptH:'#50aa70',
+  snap:'#c89020',
+  prev:'#1e3050',
+  dim:'#806020',
+  fix:'#502888',
+  conSat:'#2a6a40', conErr:'#b02828',
+};
+
+function drawGrid() {
+  const gs = 50;
+  const [wx0] = toW(0, 0), [wx1] = toW(W, 0);
+  const [,wy0] = toW(0, H), [,wy1] = toW(0, 0);
+  const gx0 = Math.floor(wx0/gs)*gs, gx1 = Math.ceil(wx1/gs)*gs;
+  const gy0 = Math.floor(wy0/gs)*gs, gy1 = Math.ceil(wy1/gs)*gs;
+  ctx.lineWidth = 0.5;
+  for (let wx = gx0; wx <= gx1; wx += gs) {
+    const [sx] = toS(wx, 0);
+    ctx.strokeStyle = Math.abs(wx) < 0.1 ? C.ax : Math.abs(wx % 200) < 0.1 ? C.gridM : C.grid;
+    ctx.beginPath(); ctx.moveTo(sx, 0); ctx.lineTo(sx, H); ctx.stroke();
+  }
+  for (let wy = gy0; wy <= gy1; wy += gs) {
+    const [,sy] = toS(0, wy);
+    ctx.strokeStyle = Math.abs(wy) < 0.1 ? C.ax : Math.abs(wy % 200) < 0.1 ? C.gridM : C.grid;
+    ctx.beginPath(); ctx.moveTo(0, sy); ctx.lineTo(W, sy); ctx.stroke();
+  }
+  const [ox, oy] = toS(0, 0);
+  ctx.fillStyle = '#283040'; ctx.font = '8px Courier New';
+  ctx.fillText('O', ox+3, oy-3);
+}
+
+function drawGeom(g) {
+  const isSel = sel.includes(g.id), isHov = hov === g.id;
+  const isFix = cons.some(c => c.type === 'fix' && c.g[0] === g.id);
+  let col = isSel ? C.geomS : isHov ? C.geomH : C.geom;
+  if (g.type === 'point') col = isSel ? C.ptS : isHov ? C.ptH : C.pt;
+  const p = g.params;
+  ctx.save();
+  ctx.strokeStyle = col; ctx.fillStyle = col;
+  ctx.lineWidth = isSel ? 2 : 1.5;
+
+  if (g.type === 'point') {
+    const [sx, sy] = toS(p[0], p[1]);
+    ctx.beginPath(); ctx.arc(sx, sy, isSel ? 5 : 3.5, 0, Math.PI*2); ctx.fill();
+    if (isFix) {
+      ctx.strokeStyle = C.fix; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(sx, sy, 7, 0, Math.PI*2); ctx.stroke();
+    }
+  }
+  else if (g.type === 'line') {
+    const [x1s, y1s] = toS(p[0], p[1]);
+    const [x2s, y2s] = toS(p[2], p[3]);
+    // Fix marker as dashed underlay
+    if (isFix) {
+      ctx.save(); ctx.strokeStyle = C.fix; ctx.lineWidth = 2.5;
+      ctx.setLineDash([3, 4]);
+      ctx.beginPath(); ctx.moveTo(x1s, y1s); ctx.lineTo(x2s, y2s); ctx.stroke();
+      ctx.restore();
+    }
+    ctx.beginPath(); ctx.moveTo(x1s, y1s); ctx.lineTo(x2s, y2s); ctx.stroke();
+    ctx.fillStyle = col;
+    ctx.beginPath(); ctx.arc(x1s, y1s, 2.5, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x2s, y2s, 2.5, 0, Math.PI*2); ctx.fill();
+    // Inline constraint icons
+    drawInlineMarkers(g);
+  }
+  else if (g.type === 'circle') {
+    const [cxs, cys] = toS(p[0], p[1]);
+    ctx.beginPath(); ctx.arc(cxs, cys, p[2]*camS, 0, Math.PI*2); ctx.stroke();
+    ctx.fillStyle = col;
+    ctx.beginPath(); ctx.arc(cxs, cys, 2.5, 0, Math.PI*2); ctx.fill();
+  }
+  else if (g.type === 'arc') {
+    const [cxs, cys] = toS(p[0], p[1]);
+    ctx.beginPath();
+    ctx.arc(cxs, cys, p[2]*camS, -p[3]*Math.PI/180, -p[4]*Math.PI/180, true);
+    ctx.stroke();
+    ctx.fillStyle = col;
+    ctx.beginPath(); ctx.arc(cxs, cys, 2.5, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.restore();
+}
+
+const ICON = { horizontal:'—', vertical:'|', parallel:'∥', perpendicular:'⊥' };
+
+function drawInlineMarkers(g) {
+  const p = g.params;
+  const gCons = cons.filter(c => c.g[0] === g.id && ICON[c.type]);
+  if (!gCons.length) return;
+  const mx = (p[0]+p[2])/2, my = (p[1]+p[3])/2;
+  const [msx, msy] = toS(mx, my);
+  ctx.save();
+  ctx.font = '9px Courier New'; ctx.fillStyle = C.conSat;
+  let ox = -gCons.length * 5;
+  for (const c of gCons) {
+    ctx.fillText(ICON[c.type], msx + ox, msy - 9);
+    ox += 11;
+  }
+  ctx.restore();
+}
+
+function drawDimension(c) {
+  const gA = geoms.find(g => g.id === c.g[0]); if (!gA) return;
+  const p = gA.params;
+  ctx.save(); ctx.fillStyle = C.dim; ctx.strokeStyle = C.dim; ctx.font = '9.5px Courier New';
+
+  if (c.type === 'distance' && gA.type === 'line') {
+    const [x1s, y1s] = toS(p[0], p[1]);
+    const [x2s, y2s] = toS(p[2], p[3]);
+    const mx = (x1s+x2s)/2, my = (y1s+y2s)/2;
+    // offset perpendicular to line
+    let nx = -(y2s-y1s), ny = x2s-x1s;
+    const nl = Math.sqrt(nx*nx+ny*ny) || 1;
+    nx = nx/nl * 16; ny = ny/nl * 16;
+    ctx.setLineDash([3, 4]); ctx.lineWidth = 0.7;
+    ctx.beginPath();
+    ctx.moveTo(x1s, y1s); ctx.lineTo(x1s+nx, y1s+ny);
+    ctx.moveTo(x2s, y2s); ctx.lineTo(x2s+nx, y2s+ny);
+    ctx.moveTo(x1s+nx, y1s+ny); ctx.lineTo(x2s+nx, y2s+ny);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillText(c.v.toFixed(1), mx+nx/2+4, my+ny/2-3);
+  }
+  else if (c.type === 'distance' && gA.type === 'point') {
+    const gB = geoms.find(g => g.id === c.g[1]); if (!gB) { ctx.restore(); return; }
+    const pb = gB.params;
+    const [x1s, y1s] = toS(p[0], p[1]);
+    const [x2s, y2s] = toS(pb[0], pb[1]);
+    const mx = (x1s+x2s)/2, my = (y1s+y2s)/2;
+    ctx.setLineDash([3, 4]); ctx.lineWidth = 0.7;
+    ctx.beginPath(); ctx.moveTo(x1s, y1s); ctx.lineTo(x2s, y2s); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillText(c.v.toFixed(1), mx+4, my-4);
+  }
+  else if (c.type === 'angle') {
+    const [x1s, y1s] = toS(p[0], p[1]);
+    ctx.fillText(c.v + '°', x1s + 5, y1s - 5);
+  }
+  ctx.restore();
+}
+
+function drawSymmetricLine(c) {
+  const gA = geoms.find(g => g.id === c.g[0]);
+  const gB = geoms.find(g => g.id === c.g[1]);
+  if (!gA || !gB) return;
+  const [ax, ay] = toS(gA.params[0], gA.params[1]);
+  const [bx, by] = toS(gB.params[0], gB.params[1]);
+  ctx.save();
+  ctx.strokeStyle = '#304868'; ctx.lineWidth = 0.7; ctx.setLineDash([2, 4]);
+  ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+  ctx.restore();
+}
+
+function drawPreview() {
+  if (!drawSt || !drawSt.cursor) return;
+  const cx = drawSt.cursor.x, cy = drawSt.cursor.y;
+  ctx.save(); ctx.strokeStyle = C.prev; ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
+
+  if (tool === 'line' && drawSt.start) {
+    const [x1s, y1s] = toS(drawSt.start.x, drawSt.start.y);
+    const [x2s, y2s] = toS(cx, cy);
+    ctx.beginPath(); ctx.moveTo(x1s, y1s); ctx.lineTo(x2s, y2s); ctx.stroke();
+    const ln = dist(drawSt.start.x, drawSt.start.y, cx, cy);
+    ctx.setLineDash([]); ctx.fillStyle = C.snap; ctx.font = '9.5px Courier New';
+    ctx.fillText(`L=${ln.toFixed(1)}`, x2s+8, y2s-4);
+  }
+  else if (tool === 'circle' && drawSt.center) {
+    const r = dist(drawSt.center.x, drawSt.center.y, cx, cy);
+    const [cxs, cys] = toS(drawSt.center.x, drawSt.center.y);
+    ctx.beginPath(); ctx.arc(cxs, cys, r*camS, 0, Math.PI*2); ctx.stroke();
+    ctx.setLineDash([]); ctx.fillStyle = C.snap; ctx.font = '9.5px Courier New';
+    ctx.fillText(`R=${r.toFixed(1)}`, cxs + r*camS + 5, cys);
+  }
+  else if (tool === 'arc' && drawSt.center) {
+    const [cxs, cys] = toS(drawSt.center.x, drawSt.center.y);
+    if (drawSt.radius) {
+      const sa = -drawSt.startAngle * Math.PI/180;
+      const ea = -Math.atan2(cy - drawSt.center.y, cx - drawSt.center.x);
+      ctx.beginPath(); ctx.arc(cxs, cys, drawSt.radius*camS, sa, ea, true); ctx.stroke();
+    } else {
+      const r = dist(drawSt.center.x, drawSt.center.y, cx, cy);
+      ctx.beginPath(); ctx.arc(cxs, cys, r*camS, 0, Math.PI*2); ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+function drawSnapMark() {
+  if (!snap) return;
+  const [sx, sy] = toS(snap.x, snap.y);
+  const colors = { endpoint:'#c89020', midpoint:'#20a060', center:'#2070c0', grid:'#304050', point:'#20a060' };
+  ctx.save();
+  ctx.strokeStyle = colors[snap.type] || C.snap; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(sx, sy, 7, 0, Math.PI*2); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(sx-11, sy); ctx.lineTo(sx+11, sy);
+  ctx.moveTo(sx, sy-11); ctx.lineTo(sx, sy+11);
+  ctx.stroke();
+  const lbl = {endpoint:'EP', midpoint:'MID', center:'CTR', grid:'GRID', point:'PT'}[snap.type] || '';
+  if (lbl) { ctx.fillStyle = colors[snap.type] || C.snap; ctx.font = '8px Courier New'; ctx.fillText(lbl, sx+9, sy-9); }
+  ctx.restore();
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = C.bg; ctx.fillRect(0, 0, W, H);
+  drawGrid();
+  // Dimension annotations
+  for (const c of cons) if (['distance','angle'].includes(c.type)) drawDimension(c);
+  // Symmetric indicator lines
+  for (const c of cons) if (c.type === 'symmetric') drawSymmetricLine(c);
+  // Geometry
+  for (const g of geoms) drawGeom(g);
+  drawPreview();
+  drawSnapMark();
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Snap / Hit
+// ═══════════════════════════════════════════════════════════
+function findSnap(wx, wy) {
+  const sd = 10 / camS;
+  let best = null, bestD = sd;
+
+  for (const g of geoms) {
+    const p = g.params;
+    if (g.type === 'point') {
+      const d = dist(wx, wy, p[0], p[1]);
+      if (d < bestD) { bestD = d; best = {x:p[0], y:p[1], geom:g.id, type:'point'}; }
+    } else if (g.type === 'line') {
+      for (const [ex, ey] of [[p[0],p[1]], [p[2],p[3]]]) {
+        const d = dist(wx, wy, ex, ey);
+        if (d < bestD) { bestD = d; best = {x:ex, y:ey, geom:g.id, type:'endpoint'}; }
+      }
+      const mx = (p[0]+p[2])/2, my = (p[1]+p[3])/2;
+      const d = dist(wx, wy, mx, my);
+      if (d < bestD * 0.75) { bestD = d; best = {x:mx, y:my, geom:g.id, type:'midpoint'}; }
+    } else if (g.type === 'circle' || g.type === 'arc') {
+      const d = dist(wx, wy, p[0], p[1]);
+      if (d < bestD) { bestD = d; best = {x:p[0], y:p[1], geom:g.id, type:'center'}; }
+    }
+  }
+  if (!best) {
+    const gs = 10, gx = Math.round(wx/gs)*gs, gy = Math.round(wy/gs)*gs;
+    if (dist(wx, wy, gx, gy) < 4/camS) best = {x:gx, y:gy, geom:null, type:'grid'};
+  }
+  return best;
+}
+
+function findHit(wx, wy) {
+  const hd = 8 / camS;
+  for (let i = geoms.length-1; i >= 0; i--) {
+    const g = geoms[i]; const p = g.params;
+    if (g.type === 'point'  && dist(wx, wy, p[0], p[1]) < hd) return g.id;
+    if (g.type === 'line'   && segDist(wx, wy, p[0], p[1], p[2], p[3]) < hd) return g.id;
+    if (g.type === 'circle' && Math.abs(dist(wx, wy, p[0], p[1]) - p[2]) < hd) return g.id;
+    if (g.type === 'arc'    && Math.abs(dist(wx, wy, p[0], p[1]) - p[2]) < hd) return g.id;
+  }
+  return null;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Tool
+// ═══════════════════════════════════════════════════════════
+const TOOL_MSG = {
+  select: 'クリックで選択。Shift+クリックで複数選択。選択後にドラッグで移動。',
+  point:  'クリックで点を配置します。',
+  line:   '1クリック目: 始点、2クリック目: 終点。スナップ(黄色)に合わせると精確です。',
+  circle: '1クリック目: 中心、2クリック目: 円周上の点。',
+  arc:    '1クリック目: 中心、2クリック目: 始点、3クリック目: 終点。',
+};
+const TOOL_LABEL = { select:'選択', point:'点', line:'線分', circle:'円', arc:'円弧' };
+
+function setTool(t) {
+  tool = t; drawSt = null;
+  document.querySelectorAll('.tb').forEach(b => b.classList.remove('on'));
+  const btn = document.getElementById('btn-'+t);
+  if (btn) btn.classList.add('on');
+  document.getElementById('st-tool').textContent = 'ツール: ' + TOOL_LABEL[t];
+  document.getElementById('st-msg').textContent = TOOL_MSG[t] || '';
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Add Constraint
+// ═══════════════════════════════════════════════════════════
+function addCon(type) {
+  const selG = sel.map(id => geoms.find(g => g.id === id)).filter(Boolean);
+  let added = false;
+
+  switch (type) {
+
+    case 'fix':
+      for (const g of selG) {
+        if (cons.some(c => c.type === 'fix' && c.g[0] === g.id)) continue;
+        let v = null;
+        if (g.type === 'point') v = {x: g.params[0], y: g.params[1]};
+        else if (g.type === 'line') v = {x0: g.params[0], y0: g.params[1], x1: g.params[2], y1: g.params[3]};
+        if (v) { cons.push({id:nid(), type:'fix', g:[g.id], v}); added = true; }
+      }
+      if (!added) msg('固定: 点または線分を選択してください');
+      break;
+
+    case 'coincident':
+      if (selG.length >= 2) {
+        cons.push({id:nid(), type:'coincident', g:[selG[0].id, selG[1].id], eA:0, eB:0});
+        added = true;
+      } else msg('一致: 2つのジオメトリを選択してください');
+      break;
+
+    case 'horizontal':
+    case 'vertical':
+      if (selG.length) {
+        for (const g of selG) { cons.push({id:nid(), type, g:[g.id]}); added = true; }
+      } else msg(type === 'horizontal' ? '水平: 線分を選択してください' : '垂直: 線分を選択してください');
+      break;
+
+    case 'parallel':
+    case 'perpendicular':
+      if (selG.length >= 2) {
+        cons.push({id:nid(), type, g:[selG[0].id, selG[1].id]}); added = true;
+      } else msg((type==='parallel'?'平行':'直交') + ': 2本の線分を選択してください');
+      break;
+
+    case 'midpoint': {
+      const line = selG.find(g => g.type === 'line');
+      const pt   = selG.find(g => g.type === 'point');
+      if (line && pt) { cons.push({id:nid(), type:'midpoint', g:[line.id, pt.id]}); added = true; }
+      else msg('中点: 線分と点を選択してください');
+      break;
+    }
+
+    case 'symmetric': {
+      const axisLine = selG.find(g => g.type === 'line');
+      const pts = selG.filter(g => g.type === 'point');
+      if (axisLine && pts.length >= 2) {
+        cons.push({id:nid(), type:'symmetric', g:[pts[0].id, pts[1].id, axisLine.id]});
+        added = true;
+      } else msg('対称: 2つの点と対称軸(線分)を選択してください');
+      break;
+    }
+
+    case 'distance': {
+      let defVal = '100';
+      if (selG.length === 1 && selG[0].type === 'line') {
+        const q = selG[0].params;
+        defVal = dist(q[0], q[1], q[2], q[3]).toFixed(1);
+      } else if (selG.length >= 2 && selG[0].type === 'point' && selG[1].type === 'point') {
+        defVal = dist(selG[0].params[0], selG[0].params[1], selG[1].params[0], selG[1].params[1]).toFixed(1);
+      }
+      const v = parseFloat(prompt('距離の値を入力:', defVal));
+      if (!isNaN(v) && v > 0) {
+        if (selG.length === 1) cons.push({id:nid(), type:'distance', g:[selG[0].id], v});
+        else if (selG.length >= 2) cons.push({id:nid(), type:'distance', g:[selG[0].id, selG[1].id], v});
+        added = true;
+      }
+      break;
+    }
+
+    case 'angle': {
+      if (selG.length >= 2) {
+        const v = parseFloat(prompt('角度を入力 (度):', '90'));
+        if (!isNaN(v)) { cons.push({id:nid(), type:'angle', g:[selG[0].id, selG[1].id], v}); added = true; }
+      } else msg('角度: 2本の線分を選択してください');
+      break;
+    }
+  }
+
+  if (added) runSolver();
+  updateUI();
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Helpers
+// ═══════════════════════════════════════════════════════════
+function msg(m) {
+  document.getElementById('st-msg').textContent = m;
+  setTimeout(() => document.getElementById('st-msg').textContent = TOOL_MSG[tool] || '', 2500);
+}
+
+let solverTimer = null;
+function runSolver() {
+  if (solverTimer) clearTimeout(solverTimer);
+  solverTimer = setTimeout(() => {
+    const t0 = performance.now();
+    const res = solve();
+    const el = (performance.now() - t0).toFixed(1);
+    document.getElementById('st-it').textContent =
+      `${res.iters}回反復  ${el}ms  RMS=${res.rms.toFixed(5)}`;
+    draw(); updateUI();
+  }, 0);
+}
+
+function delSel() {
+  for (const id of sel) {
+    geoms = geoms.filter(g => g.id !== id);
+    cons  = cons.filter(c => !c.g.includes(id));
+  }
+  sel = []; runSolver(); updateUI();
+}
+
+function clearAll() {
+  geoms = []; cons = []; sel = []; draw(); updateUI();
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Mouse
+// ═══════════════════════════════════════════════════════════
+cv.addEventListener('mousemove', e => {
+  const r = cv.getBoundingClientRect();
+  const sx = e.clientX - r.left, sy = e.clientY - r.top;
+  const [wx, wy] = toW(sx, sy);
+
+  if (panning && panSt) {
+    camX += sx - panSt.sx; camY += sy - panSt.sy; panSt = {sx, sy};
+    draw(); return;
+  }
+
+  snap = findSnap(wx, wy);
+  if (drawSt) drawSt.cursor = snap ? {x:snap.x, y:snap.y} : {x:wx, y:wy};
+
+  if (tool === 'select' && dragging && dragSt && sel.length > 0) {
+    const dx = wx - dragSt.wx, dy = wy - dragSt.wy;
+    for (const id of sel) {
+      const g = geoms.find(x => x.id === id);
+      if (!g || !geomBak[id]) continue;
+      const orig = geomBak[id];
+      g.params = orig.map((v, i) => {
+        if (g.type === 'point')  return v + (i===0 ? dx : dy);
+        if (g.type === 'line')   return v + (i%2===0 ? dx : dy);
+        if (g.type === 'circle') return v + (i===0 ? dx : i===1 ? dy : 0);
+        if (g.type === 'arc')    return v + (i===0 ? dx : i===1 ? dy : 0);
+        return v;
+      });
+    }
+    runSolver();
+  }
+
+  hov = findHit(wx, wy);
+
+  // Tooltip
+  const tip = document.getElementById('tip');
+  if (hov !== null) {
+    const g = geoms.find(x => x.id === hov); const p = g.params;
+    let info = '';
+    if (g.type === 'point')  info = `点  (${p[0].toFixed(2)}, ${p[1].toFixed(2)})`;
+    if (g.type === 'line')   info = `線分  L=${dist(p[0],p[1],p[2],p[3]).toFixed(2)}  ∠${angDeg(p[0],p[1],p[2],p[3]).toFixed(1)}°`;
+    if (g.type === 'circle') info = `円  R=${p[2].toFixed(2)}  中心=(${p[0].toFixed(2)}, ${p[1].toFixed(2)})`;
+    if (g.type === 'arc')    info = `円弧  R=${p[2].toFixed(2)}  ${p[3].toFixed(1)}°→${p[4].toFixed(1)}°`;
+    tip.style.display = 'block';
+    tip.style.left = (e.clientX + 14) + 'px';
+    tip.style.top  = (e.clientY - 10) + 'px';
+    tip.textContent = info;
+  } else {
+    tip.style.display = 'none';
+  }
+
+  draw();
+});
+
+cv.addEventListener('mousedown', e => {
+  const r = cv.getBoundingClientRect();
+  const sx = e.clientX - r.left, sy = e.clientY - r.top;
+  const [wx, wy] = toW(sx, sy);
+  const sn = findSnap(wx, wy);
+  const pt = sn ? {x:sn.x, y:sn.y} : {x:wx, y:wy};
+
+  // Pan: middle button or Alt+left
+  if (e.button === 1 || (e.button === 0 && e.altKey)) {
+    panning = true; panSt = {sx, sy}; e.preventDefault(); return;
+  }
+
+  if (tool === 'select') {
+    const hit = findHit(wx, wy);
+    if (hit !== null) {
+      if (e.shiftKey) sel = sel.includes(hit) ? sel.filter(id => id !== hit) : [...sel, hit];
+      else if (!sel.includes(hit)) sel = [hit];
+      dragging = true; dragSt = {wx, wy};
+      geomBak = {};
+      for (const id of sel) {
+        const g = geoms.find(x => x.id === id);
+        if (g) geomBak[id] = [...g.params];
+      }
+    } else {
+      if (!e.shiftKey) sel = [];
+    }
+    updateUI(); draw(); return;
+  }
+
+  if (tool === 'point') {
+    geoms.push({id:nid(), type:'point', params:[pt.x, pt.y]});
+    runSolver(); updateUI(); return;
+  }
+
+  if (tool === 'line') {
+    if (!drawSt?.start) { drawSt = {start:pt, cursor:pt}; }
+    else {
+      if (dist(pt.x, pt.y, drawSt.start.x, drawSt.start.y) > 1) {
+        geoms.push({id:nid(), type:'line', params:[drawSt.start.x, drawSt.start.y, pt.x, pt.y]});
+        drawSt = null; runSolver(); updateUI();
+      }
+    }
+    return;
+  }
+
+  if (tool === 'circle') {
+    if (!drawSt?.center) { drawSt = {center:pt, cursor:pt}; }
+    else {
+      const rv = dist(drawSt.center.x, drawSt.center.y, pt.x, pt.y);
+      if (rv > 1) {
+        geoms.push({id:nid(), type:'circle', params:[drawSt.center.x, drawSt.center.y, rv]});
+        drawSt = null; runSolver(); updateUI();
+      }
+    }
+    return;
+  }
+
+  if (tool === 'arc') {
+    if (!drawSt?.center) { drawSt = {center:pt, cursor:pt}; }
+    else if (!drawSt.radius) {
+      const rv = dist(drawSt.center.x, drawSt.center.y, pt.x, pt.y);
+      drawSt.radius = rv;
+      drawSt.startAngle = Math.atan2(pt.y - drawSt.center.y, pt.x - drawSt.center.x) * 180/Math.PI;
+    } else {
+      const ea = Math.atan2(pt.y - drawSt.center.y, pt.x - drawSt.center.x) * 180/Math.PI;
+      geoms.push({id:nid(), type:'arc', params:[drawSt.center.x, drawSt.center.y, drawSt.radius, drawSt.startAngle, ea]});
+      drawSt = null; runSolver(); updateUI();
+    }
+    return;
+  }
+});
+
+cv.addEventListener('mouseup', e => {
+  if (e.button === 1) { panning = false; panSt = null; return; }
+  dragging = false; dragSt = null; geomBak = null;
+  if (panning) { panning = false; panSt = null; }
+});
+
+cv.addEventListener('wheel', e => {
+  e.preventDefault();
+  const r = cv.getBoundingClientRect();
+  const sx = e.clientX - r.left, sy = e.clientY - r.top;
+  const [wx, wy] = toW(sx, sy);
+  const f = e.deltaY < 0 ? 1.13 : 1/1.13;
+  camS *= f;
+  const [nx, ny] = toS(wx, wy);
+  camX += sx - nx; camY += sy - ny;
+  draw();
+}, {passive: false});
+
+// ═══════════════════════════════════════════════════════════
+//  Keyboard
+// ═══════════════════════════════════════════════════════════
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') return;
+  const k = e.key.toLowerCase();
+  if (k === 's') setTool('select');
+  else if (k === 'l') setTool('line');
+  else if (k === 'c') setTool('circle');
+  else if (k === 'a') setTool('arc');
+  else if (k === 'p') setTool('point');
+  else if (k === 'escape') { drawSt = null; sel = []; draw(); updateUI(); }
+  else if (k === 'delete' || k === 'backspace') { if (sel.length) delSel(); }
+  else if (k === 'h' && sel.length) addCon('horizontal');
+  else if (k === 'v' && sel.length) addCon('vertical');
+  else if (k === 'f' && sel.length) addCon('fix');
+});
+
+// ═══════════════════════════════════════════════════════════
+//  UI update
+// ═══════════════════════════════════════════════════════════
+const CON_LABEL = {
+  coincident:'一致', horizontal:'水平', vertical:'垂直',
+  parallel:'平行', perpendicular:'直交', midpoint:'中点',
+  symmetric:'対称', distance:'距離', angle:'角度', fix:'固定'
+};
+
+function updateUI() {
+  const totalDOF = geoms.reduce((s, g) => s + gDOF(g), 0);
+  const conDOF   = cons.reduce((s, c) => s + (CON_DOF[c.type] || 0), 0);
+  const freeDOF  = Math.max(0, totalDOF - conDOF);
+  const over     = conDOF > totalDOF;
+
+  document.getElementById('si-dof').textContent = freeDOF;
+  document.getElementById('si-g').textContent   = geoms.length;
+  document.getElementById('si-c').textContent   = cons.length;
+
+  const pct  = totalDOF > 0 ? Math.max(0, Math.min(100, (1 - freeDOF/totalDOF)*100)) : 0;
+  const fill = document.getElementById('dof-f');
+  fill.style.width      = pct + '%';
+  fill.style.background = over ? '#b02828' : freeDOF === 0 ? '#2a7a40' : freeDOF <= 2 ? '#a07010' : '#2d69b5';
+
+  const si = document.getElementById('si-s');
+  if (!geoms.length)      { si.textContent = '—';             si.className = 'sv'; }
+  else if (over)          { si.textContent = '過拘束';        si.className = 'sv err'; }
+  else if (freeDOF === 0) { si.textContent = '完全拘束 ✓';   si.className = 'sv ok'; }
+  else                    { si.textContent = `未拘束 (${freeDOF} DOF)`; si.className = 'sv warn'; }
+
+  // Selection info
+  const sd = document.getElementById('sel-info');
+  if (!sel.length) {
+    sd.innerHTML = '<span style="color:#404858">未選択</span>';
+  } else if (sel.length === 1) {
+    const g = geoms.find(x => x.id === sel[0]);
+    if (g) {
+      const p = g.params;
+      let html = `<span style="color:#4a9a6a">${g.type} #${g.id}</span><br>`;
+      if (g.type === 'point')
+        html += `<span style="color:#6a7488">x=${p[0].toFixed(2)}&ensp;y=${p[1].toFixed(2)}</span>`;
+      else if (g.type === 'line')
+        html += `<span style="color:#6a7488">L=${dist(p[0],p[1],p[2],p[3]).toFixed(2)}&ensp;∠${angDeg(p[0],p[1],p[2],p[3]).toFixed(1)}°<br>`
+              + `(${p[0].toFixed(1)}, ${p[1].toFixed(1)}) → (${p[2].toFixed(1)}, ${p[3].toFixed(1)})</span>`;
+      else if (g.type === 'circle')
+        html += `<span style="color:#6a7488">R=${p[2].toFixed(2)}&ensp;中心=(${p[0].toFixed(2)}, ${p[1].toFixed(2)})</span>`;
+      else if (g.type === 'arc')
+        html += `<span style="color:#6a7488">R=${p[2].toFixed(2)}&ensp;${p[3].toFixed(1)}°→${p[4].toFixed(1)}°</span>`;
+      sd.innerHTML = html;
+    }
+  } else {
+    sd.innerHTML = `<span style="color:#4a9a6a">${sel.length} 個選択中</span>`;
+  }
+
+  // Constraint list
+  const cl = document.getElementById('cl-wrap');
+  cl.innerHTML = '';
+  for (const c of cons) {
+    const gA = geoms.find(g => g.id === c.g[0]);
+    const div = document.createElement('div');
+    div.className = 'cl' + (c.g.some(id => sel.includes(id)) ? ' sel-con' : '');
+    div.onclick = () => { sel = c.g.filter(id => geoms.find(g => g.id === id)); updateUI(); draw(); };
+
+    let lbl = CON_LABEL[c.type] || c.type;
+    if (c.v !== undefined && typeof c.v === 'number') lbl += ` (${c.v.toFixed(1)})`;
+    const ids = c.g.filter(id => geoms.find(g => g.id === id)).map(id => '#'+id).join('+');
+
+    const dot = document.createElement('span');
+    dot.className = 'cd';
+    dot.style.background = gA ? C.conSat : C.conErr;
+
+    const lblEl = document.createElement('span');
+    lblEl.style.flex = '1';
+    lblEl.textContent = lbl;
+
+    const idEl = document.createElement('span');
+    idEl.style.cssText = 'color:#2e3848;font-size:9px';
+    idEl.textContent = ids;
+
+    const del = document.createElement('button');
+    del.className = 'cdel'; del.textContent = '✕';
+    del.title = '拘束を削除';
+    del.onclick = ev => {
+      ev.stopPropagation();
+      cons = cons.filter(x => x.id !== c.id);
+      runSolver(); updateUI();
+    };
+
+    div.append(dot, lblEl, idEl, del);
+    cl.appendChild(div);
+  }
+  if (!cons.length) {
+    cl.innerHTML = '<span style="color:#2e3848;font-size:10px">拘束がありません</span>';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Demo
+// ═══════════════════════════════════════════════════════════
+function loadDemo() {
+  clearAll();
+  const r = () => (Math.random() - 0.5) * 8;
+  // 矩形 + 中心点 + 円弧
+  const ids = [];
+  const mkLine = (x1,y1,x2,y2) => {
+    const g = {id:nid(), type:'line', params:[x1+r(),y1+r(),x2+r(),y2+r()]};
+    geoms.push(g); ids.push(g.id); return g.id;
+  };
+  const mkPt = (x,y) => {
+    const g = {id:nid(), type:'point', params:[x+r(),y+r()]};
+    geoms.push(g); ids.push(g.id); return g.id;
+  };
+
+  const l0 = mkLine(-100,-70, 100,-70);  // 下辺
+  const l1 = mkLine( 100,-70, 100, 70);  // 右辺
+  const l2 = mkLine( 100, 70,-100, 70);  // 上辺
+  const l3 = mkLine(-100, 70,-100,-70);  // 左辺
+  const cPt = mkPt(0, 0);               // 中心点
+  const mPt = mkPt(0,-70);              // 下辺の中点
+  const sPt = mkPt(100, 0);             // 右辺上の点
+
+  // 直交する対角線
+  const dia = {id:nid(), type:'line', params:[-100+r(),-70+r(), 100+r(),70+r()]};
+  geoms.push(dia);
+
+  cons.push(
+    // Shape constraints
+    {id:nid(), type:'horizontal', g:[l0]},
+    {id:nid(), type:'horizontal', g:[l2]},
+    {id:nid(), type:'vertical',   g:[l1]},
+    {id:nid(), type:'vertical',   g:[l3]},
+    // Dimensions
+    {id:nid(), type:'distance',   g:[l0], v:200},
+    {id:nid(), type:'distance',   g:[l1], v:140},
+    // Fix lower-left corner via fix
+    {id:nid(), type:'fix',        g:[l0], v:{x0:-100,y0:-70,x1:100,y1:-70}},
+    // Center point at midpoint of bottom edge
+    {id:nid(), type:'midpoint',   g:[l0, mPt]},
+    // Center point is also midpoint of top edge
+    {id:nid(), type:'midpoint',   g:[l2, cPt]},
+    // Symmetric: sPt and mPt symmetric about diagonal
+    {id:nid(), type:'symmetric',  g:[mPt, sPt, dia.id]},
+    // Diagonal parallel to nothing, but perpendicular to itself as demo
+    {id:nid(), type:'coincident', g:[l1, sPt], eA:0, eB:0},
+  );
+
+  runSolver();
+  updateUI();
+  msg('デモを読み込みました。ドラッグで動かしてみてください！');
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Init
+// ═══════════════════════════════════════════════════════════
+function resize() {
+  const cw = document.getElementById('cw');
+  W = cw.clientWidth; H = cw.clientHeight;
+  cv.width = W; cv.height = H;
+  draw();
+}
+window.addEventListener('resize', resize);
+resize();
+loadDemo();
+</script>
+</body>
+</html>

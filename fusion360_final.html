@@ -505,6 +505,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   <div>ツール:<span class="bv" id="bb-tool">選択</span></div>
   <div>Zoom:<span class="bv" id="bb-zoom">100%</span></div>
   <div>選択:<span class="bv" id="bb-sel">0</span></div>
+  <div style="font-family:var(--mono);font-size:10px;font-weight:600" id="bb-dof"></div>
   <div style="color:var(--purple);font-family:var(--mono)" id="bb-undo"></div>
   <div id="bb-hint">L=線分 S=選択 D=寸法ツール | Ctrl+Z=Undo Ctrl+Y=Redo</div>
 </div>
@@ -826,140 +827,305 @@ function addSeg(p1,p2){
 //  先行拘束維持システム
 // ══════════════════════════════════════════════
 // 点が寸法拘束された線分の端点かどうか
+// ══════════════════════════════════════════════════════════════
+//  DCM準拠 Newton-Raphson 拘束ソルバー
+//  参考: D-Cubed 2D DCM (Siemens)
+//
+//  状態ベクトル x = [p0.x, p0.y,  p1.x, p1.y, ...]  全自由点の座標
+//  拘束残差   F(x) = 0  を Newton-Raphson 反復で解く
+//  ヤコビアン J = dF/dx を数値微分で計算
+//  収束条件: ||dx|| < EPS  または最大反復 MAX_ITER
+// ══════════════════════════════════════════════════════════════
+
+// ── ヘルパー ──────────────────────────────────────────────────
 function _ptHasDimSeg(ptId){
   return segs.some(s=>(s.p1===ptId||s.p2===ptId)&&s.dim);
 }
-/*
-  各要素が持つ conTypes[] = 適用済み拘束の種別リスト
-  ドラッグや拘束適用後に enforceAllConstraints() を呼び、
-  既存の全拘束を順番に再適用する（先行拘束を維持）。
-*/
-// 優先度マップ (数値が大きいほど後から適用 = 最終的に強い)
-const CON_PRIORITY = {
-  '固定':     4,
-  '寸法指定': 3,
-  '水平垂直': 3,
-  '直行':     3,
-  '並行':     2,
-  '等しい':   2,
-  '一致':     1,
-  '中点':     1,
-  '同一線上': 1,
-};
+function _ptIsPositionLocked(ptId){
+  const p=pById(ptId);if(p&&p.fixed)return true;
+  return cons.some(c=>['同一線上','中点','一致'].includes(c.type)
+    &&(c.children.includes(ptId)||c.targets.includes(ptId)));
+}
 
-function enforceAllConstraints(){
-  // 登録済み拘束を優先度順にソートしたコピーで適用
-  // (低優先度を先に、高優先度を後に適用することで高優先度が最終状態を決定)
-  const sorted = [...cons].sort((a,b)=>(CON_PRIORITY[a.type]||0)-(CON_PRIORITY[b.type]||0));
+// ── ソルバー定数 ────────────────────────────────────────────
+const NR_MAX_ITER = 40;     // 最大反復回数
+const NR_EPS      = 1e-7;   // 収束判定閾値
+const NR_H        = 1e-6;   // 数値微分刻み幅
+const NR_DAMP     = 0.6;    // ダンピング係数 (0<λ≤1) — 振動防止
 
-  // 3パス繰り返して収束させる
-  for(let pass=0; pass<3; pass++){
-    for(const con of sorted) enforceOne(con);
+// ── 自由変数インデックスマップ構築 ──────────────────────────
+// 固定点は状態ベクトルに含めない
+function buildVarMap(){
+  const map = {};   // ptId -> {xi, yi}  (インデックス)
+  let idx = 0;
+  for(const p of pts){
+    if(p.fixed) continue;
+    map[p.id] = {xi: idx, yi: idx+1};
+    idx += 2;
   }
-  // 最終パス: 最高優先度(固定・寸法・水平垂直・直行)を確実に上書き
-  for(const con of sorted){
-    if((CON_PRIORITY[con.type]||0)>=3) enforceOne(con);
+  return {map, n: idx};
+}
+
+// 状態ベクトル x から pts に書き込む
+function xToPts(x, map){
+  for(const p of pts){
+    const m = map[p.id];
+    if(!m) continue;
+    p.x = x[m.xi];
+    p.y = x[m.yi];
   }
 }
 
-function enforceOne(con){
-  switch(con.type){
-    case '水平垂直':{
-      const s=sById(con.targets.find(id=>sById(id)));if(!s)break;
-      const p1=pById(s.p1),p2=pById(s.p2);if(!p1||!p2)break;
-      // HV方向はconに記録した向きを使う
-      if(con.hvDir==='H'){if(!p2.fixed)p2.y=p1.y;else if(!p1.fixed)p1.y=p2.y;}
-      else{if(!p2.fixed)p2.x=p1.x;else if(!p1.fixed)p1.x=p2.x;}
-      break;
-    }
-    case '一致':{
-      // parent=基準点(動かない), children[0]=従属点(動く)
-      const aid=con.parent||con.targets[0];
-      const bid=con.children[0]||con.targets[1];
-      const a=pById(aid),b=pById(bid);if(!a||!b)break;
-      // 基準点(a)は動かさない。従属点(b)を基準点に合わせる
-      // ただし b が固定または b の方が寸法拘束が強い場合は a を動かす
-      const bStrong = b.fixed || (_ptHasDimSeg(b.id)&&!_ptHasDimSeg(a.id));
-      if(!bStrong){b.x=a.x;b.y=a.y;}
-      else if(!a.fixed){a.x=b.x;a.y=b.y;}
-      break;
-    }
-    case '等しい':{
-      const[aid,bid]=con.targets;
-      const a=sById(aid),b=sById(bid);if(!a||!b)break;
-      scaleSeg(b,sLen(a));break;
-    }
-    case '直行':{
-      const[aid,bid]=con.targets;
-      const a=sById(aid),b=sById(bid);if(!a||!b)break;
-      const p1a=pById(a.p1),p2a=pById(a.p2),p1b=pById(b.p1),p2b=pById(b.p2);if(!p1a||!p2a||!p1b||!p2b)break;
-      const adx=p2a.x-p1a.x,ady=p2a.y-p1a.y,al=Math.hypot(adx,ady)||1,lb=sLen(b);
-      // 子の現在方向ベクトル
-      const bdx=p2b.x-p1b.x, bdy=p2b.y-p1b.y;
-      // 法線候補は (-ady,adx) と (ady,-adx) の2方向
-      // 内積が正 = 同じ側 → 内積が大きい(近い)方を選ぶ
-      const dot1=(-ady)*bdx+(adx)*bdy;
-      const dot2=( ady)*bdx+(-adx)*bdy;
-      const nx= dot1>=dot2 ? -ady/al :  ady/al;
-      const ny= dot1>=dot2 ?  adx/al : -adx/al;
-      if(!p2b.fixed){p2b.x=p1b.x+nx*lb;p2b.y=p1b.y+ny*lb;}break;
-    }
-    case '並行':{
-      const[aid,bid]=con.targets;
-      const a=sById(aid),b=sById(bid);if(!a||!b)break;
-      const p1a=pById(a.p1),p2a=pById(a.p2),p1b=pById(b.p1),p2b=pById(b.p2);if(!p1a||!p2a||!p1b||!p2b)break;
-      const adx=p2a.x-p1a.x,ady=p2a.y-p1a.y,al=Math.hypot(adx,ady)||1,lb=sLen(b);
-      const bdx=p2b.x-p1b.x,bdy=p2b.y-p1b.y;
-      // 内積で向きを判定 — 逆向きなら反転して適用
-      const dot=(adx*bdx+ady*bdy);
-      const sign=dot>=0?1:-1;
-      if(!p2b.fixed){p2b.x=p1b.x+(adx/al)*lb*sign;p2b.y=p1b.y+(ady/al)*lb*sign;}break;
-    }
-    case '中点':{
-      const ptId=con.children[0],segId=con.parent;
-      const pt=pById(ptId),seg=sById(segId);if(!pt||!seg)break;
-      const p1=pById(seg.p1),p2=pById(seg.p2);if(!p1||!p2)break;
-      if(!pt.fixed){pt.x=(p1.x+p2.x)/2;pt.y=(p1.y+p2.y)/2;}break;
-    }
-    case '同一線上':{
-      if(con.children.length===1){
-        // ── 点 + 線分 ──
-        const ptId=con.children[0], seg=sById(con.parent);
-        const pt=pById(ptId);if(!pt||!seg||pt.fixed)break;
-        const p1=pById(seg.p1),p2=pById(seg.p2);if(!p1||!p2)break;
-
-        // この点に他の「同一線上」拘束が既にあるか確認
-        const otherSegs=getColinSegsFor(ptId).filter(s=>s.id!==seg.id);
-        if(otherSegs.length>0){
-          // ── 交点モード: 2直線の交点に移動 ──
-          const s2=otherSegs[0];
-          const q1=pById(s2.p1),q2=pById(s2.p2);if(!q1||!q2)break;
-          const dx1=p2.x-p1.x, dy1=p2.y-p1.y;
-          const dx2=q2.x-q1.x, dy2=q2.y-q1.y;
-          const ix=lineIntersect(p1.x,p1.y,dx1,dy1, q1.x,q1.y,dx2,dy2);
-          if(ix){pt.x=ix.x;pt.y=ix.y;}
-          // 交点が求まらない(平行)場合は何もしない
-        } else {
-          // ── 通常: 1直線への射影 ──
-          const ax=p1.x,ay=p1.y,dx=p2.x-ax,dy=p2.y-ay,l2=dx*dx+dy*dy||1;
-          const t=((pt.x-ax)*dx+(pt.y-ay)*dy)/l2;pt.x=ax+t*dx;pt.y=ay+t*dy;
-        }
-      } else {
-        // ── 線分+線分 ──
-        const[aid,bid]=con.targets;
-        const a=sById(aid),b=sById(bid);if(!a||!b)break;
-        const p1a=pById(a.p1),p2a=pById(a.p2),p1b=pById(b.p1),p2b=pById(b.p2);if(!p1a||!p2a||!p1b||!p2b)break;
-        const ax=p1a.x,ay=p1a.y,dx=p2a.x-ax,dy=p2a.y-ay,l2=dx*dx+dy*dy||1;
-        [p1b,p2b].forEach(p=>{if(!p.fixed){const t=((p.x-ax)*dx+(p.y-ay)*dy)/l2;p.x=ax+t*dx;p.y=ay+t*dy;}});
-      }
-      break;
-    }
-    case '寸法指定':{
-      const seg=sById(con.parent);if(!seg||!seg.dim)break;
-      scaleSeg(seg,seg.dimVal);break;
-    }
-    // 固定は毎回再適用不要（pById.fixedで制御）
+// pts から状態ベクトル x を作る
+function ptsToX(map){
+  const n = Object.values(map).reduce((a,m)=>Math.max(a,m.yi+1),0);
+  const x = new Float64Array(n);
+  for(const p of pts){
+    const m = map[p.id];
+    if(!m) continue;
+    x[m.xi] = p.x;
+    x[m.yi] = p.y;
   }
+  return x;
+}
+
+// ── 拘束残差ベクトル F(x) の計算 ───────────────────────────
+// 各拘束は1つ以上のスカラー残差を返す
+// すべて = 0 が解
+function computeResiduals(x, map){
+  // 一時的に x を pts に反映
+  xToPts(x, map);
+
+  const F = [];
+
+  for(const con of cons){
+    switch(con.type){
+
+      case '水平垂直':{
+        const s=sById(con.targets.find(id=>sById(id)));if(!s)break;
+        const p1=pById(s.p1),p2=pById(s.p2);if(!p1||!p2)break;
+        if(con.hvDir==='H') F.push(p2.y - p1.y);   // dy = 0
+        else                F.push(p2.x - p1.x);   // dx = 0
+        break;
+      }
+
+      case '一致':{
+        const a=pById(con.parent||con.targets[0]);
+        const b=pById(con.children[0]||con.targets[1]);
+        if(!a||!b)break;
+        F.push(b.x - a.x);   // x一致
+        F.push(b.y - a.y);   // y一致
+        break;
+      }
+
+      case '等しい':{
+        const a=sById(con.targets[0]),b=sById(con.targets[1]);if(!a||!b)break;
+        const la=sLen(a), lb=sLen(b);
+        F.push(la - lb);      // 長さが等しい
+        break;
+      }
+
+      case '直行':{
+        const a=sById(con.targets[0]),b=sById(con.targets[1]);if(!a||!b)break;
+        const p1a=pById(a.p1),p2a=pById(a.p2);
+        const p1b=pById(b.p1),p2b=pById(b.p2);if(!p1a||!p2a||!p1b||!p2b)break;
+        const adx=p2a.x-p1a.x, ady=p2a.y-p1a.y;
+        const bdx=p2b.x-p1b.x, bdy=p2b.y-p1b.y;
+        F.push(adx*bdx + ady*bdy);  // 内積 = 0 ⟺ 直行
+        break;
+      }
+
+      case '並行':{
+        const a=sById(con.targets[0]),b=sById(con.targets[1]);if(!a||!b)break;
+        const p1a=pById(a.p1),p2a=pById(a.p2);
+        const p1b=pById(b.p1),p2b=pById(b.p2);if(!p1a||!p2a||!p1b||!p2b)break;
+        const adx=p2a.x-p1a.x, ady=p2a.y-p1a.y;
+        const bdx=p2b.x-p1b.x, bdy=p2b.y-p1b.y;
+        // 外積 = 0 ⟺ 並行  (adx*bdy - ady*bdx = 0)
+        F.push(adx*bdy - ady*bdx);
+        break;
+      }
+
+      case '中点':{
+        const pt=pById(con.children[0]);
+        const seg=sById(con.parent);if(!pt||!seg)break;
+        const p1=pById(seg.p1),p2=pById(seg.p2);if(!p1||!p2)break;
+        F.push(pt.x - (p1.x+p2.x)/2);
+        F.push(pt.y - (p1.y+p2.y)/2);
+        break;
+      }
+
+      case '同一線上':{
+        if(con.children.length===1){
+          const pt=pById(con.children[0]);
+          const seg=sById(con.parent);if(!pt||!seg)break;
+          const p1=pById(seg.p1),p2=pById(seg.p2);if(!p1||!p2)break;
+          // 点が直線上 ⟺ 外積 = 0
+          const dx=p2.x-p1.x, dy=p2.y-p1.y;
+          F.push((pt.x-p1.x)*dy - (pt.y-p1.y)*dx);
+        } else {
+          const a=sById(con.targets[0]),b=sById(con.targets[1]);if(!a||!b)break;
+          const p1a=pById(a.p1),p2a=pById(a.p2);
+          const p1b=pById(b.p1),p2b=pById(b.p2);if(!p1a||!p2a||!p1b||!p2b)break;
+          const dx=p2a.x-p1a.x, dy=p2a.y-p1a.y;
+          F.push((p1b.x-p1a.x)*dy - (p1b.y-p1a.y)*dx);
+          F.push((p2b.x-p1a.x)*dy - (p2b.y-p1a.y)*dx);
+        }
+        break;
+      }
+
+      case '寸法指定':{
+        const seg=sById(con.parent);if(!seg||!seg.dim)break;
+        // (長さ² - 目標値²) = 0  二乗形式で微分が滑らか
+        const p1=pById(seg.p1),p2=pById(seg.p2);if(!p1||!p2)break;
+        const dx=p2.x-p1.x, dy=p2.y-p1.y;
+        const L2 = dx*dx + dy*dy;
+        const T2 = seg.dimVal * seg.dimVal;
+        F.push(L2 - T2);
+        break;
+      }
+
+      case '固定':{
+        // 固定はmap構築時に変数から除外するのでここでは不要
+        // ただし con.targets に非固定点が含まれるケースに対応
+        con.targets.forEach(tid=>{
+          const p=pById(tid);if(!p||p.fixed)return;
+          // 固定化時のスナップショット座標が保存されていれば使う
+          const snap=con.snapX??p.x, snapY=con.snapY??p.y;
+          F.push(p.x - (con.snapX??p.x));
+          F.push(p.y - (con.snapY??p.y));
+        });
+        break;
+      }
+    }
+  }
+  return F;
+}
+
+// ── 数値ヤコビアン J[i][j] = dF_i/dx_j ────────────────────
+function computeJacobian(x, map){
+  const m  = x.length;
+  const F0 = computeResiduals(x, map);
+  const n  = F0.length;
+  const J  = [];
+  for(let i=0;i<n;i++) J.push(new Float64Array(m));
+
+  for(let j=0;j<m;j++){
+    const xh = x.slice();
+    xh[j] += NR_H;
+    const Fh = computeResiduals(xh, map);
+    for(let i=0;i<n;i++){
+      J[i][j] = (Fh[i] - F0[i]) / NR_H;
+    }
+  }
+  // 元に戻す
+  xToPts(x, map);
+  return {J, F:F0};
+}
+
+// ── 最小二乗解: J^T J dx = -J^T F  (過剰・不足両対応) ──────
+// Gauss-Newton 法: dx = -(J^T J)^-1 J^T F
+function gaussNewtonStep(J, F){
+  const n = F.length, m = J[0].length;
+  // JtJ = J^T * J  (m×m)
+  const JtJ = Array.from({length:m},()=>new Float64Array(m));
+  const JtF = new Float64Array(m);
+  for(let i=0;i<n;i++){
+    for(let j=0;j<m;j++){
+      JtF[j] += J[i][j] * F[i];
+      for(let k=0;k<m;k++) JtJ[j][k] += J[i][j]*J[i][k];
+    }
+  }
+  // Tikhonov正則化 (特異行列対策): JtJ += λI
+  const lambda = 1e-8;
+  for(let i=0;i<m;i++) JtJ[i][i] += lambda;
+  // ガウス消去法で JtJ * dx = -JtF を解く
+  return solveLinearSystem(JtJ, JtF.map(v=>-v));
+}
+
+// ── ガウス消去（部分ピボット） ──────────────────────────────
+function solveLinearSystem(A, b){
+  const n = b.length;
+  const M = A.map((row,i)=>[...row, b[i]]);  // 拡大係数行列
+  for(let col=0;col<n;col++){
+    // ピボット選択
+    let maxR=col;
+    for(let r=col+1;r<n;r++) if(Math.abs(M[r][col])>Math.abs(M[maxR][col])) maxR=r;
+    [M[col],M[maxR]]=[M[maxR],M[col]];
+    const pivot=M[col][col];
+    if(Math.abs(pivot)<1e-14) continue;
+    for(let r=0;r<n;r++){
+      if(r===col) continue;
+      const f=M[r][col]/pivot;
+      for(let c=col;c<=n;c++) M[r][c]-=f*M[col][c];
+    }
+    for(let c=col;c<=n;c++) M[col][c]/=pivot;
+  }
+  return M.map(row=>row[n]);
+}
+
+// ── ノルム計算 ─────────────────────────────────────────────
+function vecNorm(v){ return Math.sqrt(v.reduce((s,x)=>s+x*x,0)); }
+
+// ── メインソルバー ─────────────────────────────────────────
+function enforceAllConstraints(){
+  if(!cons.length) return;
+
+  const {map, n} = buildVarMap();
+  if(n===0) return;  // 全点が固定
+
+  let x = ptsToX(map);
+
+  // ドラッグ中の点がある場合: その点は変数から除外して固定扱い
+  // (ユーザーの意図する位置を尊重する)
+  let dragMap = map;
+  if(dragPt && map[dragPt.id]){
+    // dragPtを固定扱いにした新しいマップを作る
+    const tmpPts = pts.map(p=>({...p}));
+    const savedFixed = dragPt.fixed;
+    dragPt.fixed = true;
+    const {map: dm, n: dn} = buildVarMap();
+    dragPt.fixed = savedFixed;
+    if(dn > 0){
+      dragMap = dm;
+      x = ptsToX(dm);
+      // Newton-Raphson
+      x = newtonRaphson(x, dm);
+      xToPts(x, dm);
+      return;
+    }
+  }
+
+  x = newtonRaphson(x, map);
+  xToPts(x, map);
+}
+
+function newtonRaphson(x, map){
+  for(let iter=0; iter<NR_MAX_ITER; iter++){
+    const {J, F} = computeJacobian(x, map);
+    const fNorm = vecNorm(F);
+    if(fNorm < NR_EPS) break;  // 収束
+
+    const dx = gaussNewtonStep(J, F);
+    if(!dx || vecNorm(dx) < NR_EPS) break;
+
+    // ダンピング付きステップ
+    const step = NR_DAMP;
+    for(let j=0;j<x.length;j++) x[j] += step * dx[j];
+
+    // 発散チェック
+    if(vecNorm(dx) > 1e6) break;
+  }
+  return x;
+}
+
+// ── 固定拘束のスナップショット座標を記録 ──────────────────
+// cFix() 適用時に現在座標を con.snapX/snapY に保存
+function recordFixedSnap(con){
+  con.targets.forEach(tid=>{
+    const p=pById(tid);if(!p)return;
+    con.snapX = p.x; con.snapY = p.y;
+  });
 }
 
 function scaleSeg(s,tlen){
@@ -1466,7 +1632,9 @@ function cFix(){
     const s=sById(id);if(s){[s.p1,s.p2].forEach(pid=>{const p=pById(pid);if(p&&!p.fixed){p.fixed=true;moved.push(pid);}});}
   });
   if(!moved.length)return null;
-  return mkCon('固定',null,[...selIds],[...selIds]);
+  const con=mkCon('固定',null,[...selIds],[...selIds]);
+  recordFixedSnap(con);
+  return con;
 }
 
 // ══════════════════════════════════════════════
@@ -1604,19 +1772,34 @@ function renderOriginMarker(){
   gPts.appendChild(dm);
 }
 
+// DCM準拠: 要素ごとの残余DOFを計算して色分け
+function elemDOF(id){
+  // その要素に関わる拘束が消費するDOF合計
+  let used=0;
+  for(const con of cons){
+    if(!con.targets.includes(id))continue;
+    used += (CON_DOF_COST[con.type]||0);
+  }
+  const s=sById(id),p=pById(id);
+  const base = s?4:p?2:0;  // 線分=4DOF, 点=2DOF
+  return base - used;
+}
 function segCol(s){
   if(selIds[0]===s.id)return'#ff9900';
   if(selIds[1]===s.id)return'#4db8ff';
   if(selIds.includes(s.id))return'#ffcc00';
-  if(s.conCount>0||s.dim)return'#3fb950';
-  return'#4db8ff';
+  if(s.dim)return'#3fb950';
+  const dof=elemDOF(s.id);
+  if(dof<=0)return'#3fb950';   // 完全/過剰拘束 = 緑
+  return'#4db8ff';              // 未拘束 = 青
 }
 function ptCol(p){
   if(selIds[0]===p.id)return'#ff9900';
   if(selIds[1]===p.id)return'#4db8ff';
   if(selIds.includes(p.id))return'#ffcc00';
   if(p.fixed)return'#ff9900';
-  if(p.conCount>0)return'#3fb950';
+  const dof=elemDOF(p.id);
+  if(dof<=0)return'#3fb950';
   return'#4db8ff';
 }
 
@@ -2073,12 +2256,47 @@ function rpTab(i,el){
 // ══════════════════════════════════════════════
 //  UI更新
 // ══════════════════════════════════════════════
+// DCM準拠DOF計算
+// 点:2DOF, 線分:4DOF(2点×2)
+// ただし共有点はカウント済みなので点ベースで計算
+const CON_DOF_COST = {
+  '水平垂直': 1, '一致': 2, '等しい': 1,
+  '直行': 1, '並行': 1, '中点': 2,
+  '同一線上': 1, '固定': 2, '寸法指定': 1,
+};
+function calcDOF(){
+  // 自由点の総DOF
+  const freePts = pts.filter(p=>!p.fixed).length;
+  let totalDOF = freePts * 2;
+  // 拘束が消費するDOF
+  for(const con of cons){
+    totalDOF -= (CON_DOF_COST[con.type]||0);
+  }
+  return totalDOF;
+}
+
 function updStatus(){
   document.getElementById('st-pt').textContent=pts.length;
   document.getElementById('st-ln').textContent=segs.length;
   document.getElementById('st-dm').textContent=segs.filter(s=>s.dim).length;
   document.getElementById('st-cn').textContent=cons.length;
   document.getElementById('bb-sel').textContent=selIds.length;
+
+  // DOF表示
+  const dof = calcDOF();
+  const dofEl = document.getElementById('bb-dof');
+  if(dofEl){
+    if(dof>0){
+      dofEl.textContent='DOF:'+dof+' 未拘束';
+      dofEl.style.color='#4db8ff';
+    } else if(dof===0){
+      dofEl.textContent='DOF:0 完全拘束 ✓';
+      dofEl.style.color='#3fb950';
+    } else {
+      dofEl.textContent='DOF:'+dof+' 過剰拘束!';
+      dofEl.style.color='#e74c3c';
+    }
+  }
 }
 
 function updSelInfo(){
