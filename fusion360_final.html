@@ -463,8 +463,17 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
       <div class="rp-sec" id="dim-sec" style="display:none">
         <div class="rp-head"><span class="arr">▼</span>寸法拘束</div>
         <div class="rp-body">
-          <div class="prop"><div class="pk">線分</div><div class="pv" id="dim-id">—</div></div>
-          <div class="prop"><div class="pk">現在長</div><div class="pv" style="color:var(--dim-col)" id="dim-cur">—</div></div>
+          <div class="prop"><div class="pk" id="dim-kind-lbl">対象</div><div class="pv" id="dim-id">—</div></div>
+          <div class="prop"><div class="pk">現在値</div><div class="pv" style="color:var(--dim-col)" id="dim-cur">—</div></div>
+          <!-- 点間寸法: 種類選択 -->
+          <div class="prop" id="dim-type-row" style="display:none;padding:4px 0">
+            <div class="pk">種類</div>
+            <select id="dim-type-sel" style="background:#111;border:1px solid var(--dim-col);color:var(--dim-col);font-family:var(--mono);font-size:11px;padding:3px 6px;border-radius:2px;outline:none;width:90px">
+              <option value="dist">直線距離</option>
+              <option value="horiz">水平距離</option>
+              <option value="vert">垂直距離</option>
+            </select>
+          </div>
           <div class="prop" style="padding:4px 0">
             <div class="pk">拘束値</div>
             <input id="dim-rpval" type="number" min="0.1" step="0.5"
@@ -601,11 +610,14 @@ let segs = [];   // {id,p1,p2,dim,dimVal,conCount,conTypes:[]}
 let cons = [];   // {id,type,parent,children:[],targets:[]}
 
 let tool='select', snapOn=true;
+// 点間距離寸法 {id, p1, p2, val, type:'dist'|'horiz'|'vert'}
+let ptDims=[];
 const SNAP=20, PTHR=10;
 let VX=0,VY=0,VS=1;
 let drawing=false, drawP1=null;
 let selIds=[];           // [0]=①親, [1]=②子
 let dragPt=null, dragOX=0, dragOY=0;
+let dragGroup=null; // Map<ptId, {ox,oy}> ドラッグ時に一緒に動く点のオフセット
 let boxSel=false, boxSt=null;
 let panning=false, panSt=null;
 let activeDimId=null, canvasDimEl=null;
@@ -629,6 +641,7 @@ function snapshot(){
     pts:  pts.map(p=>({...p})),
     segs: segs.map(s=>({...s, conTypes:[...(s.conTypes||[])]})),
     cons: cons.map(c=>({...c, children:[...c.children], targets:[...c.targets]})),
+    ptDims: ptDims.map(d=>({...d})),
     uid:  _id,
   };
   undoStack.push(s);
@@ -670,6 +683,7 @@ function applySnapshot(s){
   pts  = s.pts.map(p=>({...p}));
   segs = s.segs.map(sg=>({...sg, conTypes:[...(sg.conTypes||[])]}));
   cons = s.cons.map(c=>({...c, children:[...c.children], targets:[...c.targets]}));
+  ptDims = (s.ptDims||[]).map(d=>({...d}));
   _id  = s.uid;
   selIds=[]; activeDimId=null;
   clearGhost(); cancelPending(); closeCanvasDim();
@@ -848,10 +862,10 @@ function _ptIsPositionLocked(ptId){
 }
 
 // ── ソルバー定数 ────────────────────────────────────────────
-const NR_MAX_ITER = 40;     // 最大反復回数
-const NR_EPS      = 1e-7;   // 収束判定閾値
-const NR_H        = 1e-6;   // 数値微分刻み幅
-const NR_DAMP     = 0.6;    // ダンピング係数 (0<λ≤1) — 振動防止
+const NR_MAX_ITER = 60;     // 最大反復回数
+const NR_EPS      = 1e-6;   // 収束判定閾値
+const NR_H        = 1e-5;   // 数値微分刻み幅（スケールに合わせて調整）
+const NR_DAMP     = 0.5;    // ダンピング係数 (0<λ≤1) — 振動防止
 
 // ── 自由変数インデックスマップ構築 ──────────────────────────
 // 固定点は状態ベクトルに含めない
@@ -976,22 +990,16 @@ function computeResiduals(x, map){
 
       case '寸法指定':{
         const seg=sById(con.parent);if(!seg||!seg.dim)break;
-        // (長さ² - 目標値²) = 0  二乗形式で微分が滑らか
         const p1=pById(seg.p1),p2=pById(seg.p2);if(!p1||!p2)break;
         const dx=p2.x-p1.x, dy=p2.y-p1.y;
-        const L2 = dx*dx + dy*dy;
-        const T2 = seg.dimVal * seg.dimVal;
-        F.push(L2 - T2);
+        const cur=Math.hypot(dx,dy)||1e-9;
+        F.push(cur - seg.dimVal);   // √(dx²+dy²) - L = 0（正規化形式）
         break;
       }
 
       case '固定':{
-        // 固定はmap構築時に変数から除外するのでここでは不要
-        // ただし con.targets に非固定点が含まれるケースに対応
         con.targets.forEach(tid=>{
           const p=pById(tid);if(!p||p.fixed)return;
-          // 固定化時のスナップショット座標が保存されていれば使う
-          const snap=con.snapX??p.x, snapY=con.snapY??p.y;
           F.push(p.x - (con.snapX??p.x));
           F.push(p.y - (con.snapY??p.y));
         });
@@ -999,6 +1007,21 @@ function computeResiduals(x, map){
       }
     }
   }
+
+  // ── 点間距離寸法の残差（正規化形式: 線形スケール）──
+  for(const d of ptDims){
+    const p1=pById(d.p1),p2=pById(d.p2);if(!p1||!p2)continue;
+    const dx=p2.x-p1.x, dy=p2.y-p1.y;
+    if(d.type==='dist'){
+      const cur=Math.hypot(dx,dy)||1e-9;
+      F.push(cur - d.val);              // √(dx²+dy²) - L = 0
+    } else if(d.type==='horiz'){
+      F.push(Math.abs(dx) - d.val);    // |dx| - L = 0
+    } else if(d.type==='vert'){
+      F.push(Math.abs(dy) - d.val);    // |dy| - L = 0
+    }
+  }
+
   return F;
 }
 
@@ -1076,24 +1099,29 @@ function enforceAllConstraints(){
 
   let x = ptsToX(map);
 
-  // ドラッグ中の点がある場合: その点は変数から除外して固定扱い
-  // (ユーザーの意図する位置を尊重する)
-  let dragMap = map;
-  if(dragPt && map[dragPt.id]){
-    // dragPtを固定扱いにした新しいマップを作る
-    const tmpPts = pts.map(p=>({...p}));
-    const savedFixed = dragPt.fixed;
-    dragPt.fixed = true;
-    const {map: dm, n: dn} = buildVarMap();
-    dragPt.fixed = savedFixed;
-    if(dn > 0){
-      dragMap = dm;
-      x = ptsToX(dm);
-      // Newton-Raphson
-      x = newtonRaphson(x, dm);
-      xToPts(x, dm);
-      return;
+  // ドラッグ中: dragGroup全体を一時固定してNRを解く
+  // (ユーザーが動かした位置を尊重し、その他の点だけをNRで整合)
+  if(dragPt){
+    // dragGroup の点を一時固定
+    const savedFixed = new Map();
+    if(dragGroup){
+      dragGroup.forEach((_,id)=>{
+        const p=pById(id);
+        if(p){ savedFixed.set(id,p.fixed); p.fixed=true; }
+      });
+    } else {
+      const p=pById(dragPt.id);
+      if(p){ savedFixed.set(dragPt.id,p.fixed); p.fixed=true; }
     }
+    const {map: dm, n: dn} = buildVarMap();
+    // 固定を元に戻す
+    savedFixed.forEach((was,id)=>{ const p=pById(id);if(p)p.fixed=was; });
+    if(dn > 0){
+      const xd = ptsToX(dm);
+      const xsolved = newtonRaphson(xd, dm);
+      xToPts(xsolved, dm);
+    }
+    return;
   }
 
   x = newtonRaphson(x, map);
@@ -1681,6 +1709,115 @@ function closeCanvasDim(){
   if(canvasDimEl){canvasDimEl.el.remove();canvasDimEl=null;}
 }
 
+// ── 点間距離寸法 ────────────────────────────────────────────
+let activePtDimId = null;  // 編集中の点間寸法ID
+
+function ptDimDist(d){
+  const p1=pById(d.p1),p2=pById(d.p2);if(!p1||!p2)return 0;
+  if(d.type==='horiz') return Math.abs(p2.x-p1.x);
+  if(d.type==='vert')  return Math.abs(p2.y-p1.y);
+  return Math.hypot(p2.x-p1.x, p2.y-p1.y);
+}
+
+function openDimForPts(p1id, p2id){
+  const p1=pById(p1id),p2=pById(p2id);if(!p1||!p2)return;
+  // 既存の点間寸法があれば再利用
+  let d = ptDims.find(d=>(d.p1===p1id&&d.p2===p2id)||(d.p1===p2id&&d.p2===p1id));
+  if(!d){
+    d = {id:gid(), p1:p1id, p2:p2id, val:Math.round(ptDimDist({p1:p1id,p2:p2id,type:'dist'})), type:'dist'};
+    // パネルを開くだけ(まだ追加しない)
+  }
+  activePtDimId = d.id || '__new__';
+  activeDimId   = null;  // セグメント寸法はクリア
+
+  // パネル更新
+  document.getElementById('dim-sec').style.display='';
+  document.getElementById('dim-kind-lbl').textContent='点間';
+  document.getElementById('dim-id').textContent=`${p1id}↔${p2id}`;
+  document.getElementById('dim-type-row').style.display='';
+  document.getElementById('dim-type-sel').value=d.type||'dist';
+  document.getElementById('dim-cur').textContent=ptDimDist(d).toFixed(2)+' px';
+  document.getElementById('dim-rpval').value=d.val||Math.round(ptDimDist(d));
+
+  // キャンバス内INPUT — 2点の中間に配置
+  closeCanvasDim();
+  const mx=(p1.x+p2.x)/2, my=(p1.y+p2.y)/2;
+  const sc=toS(mx, my-28/VS);
+  const inp=document.createElement('input');
+  inp.type='number';inp.min='0';inp.step='0.5';
+  inp.className='dim-edit';
+  inp.value=d.val||Math.round(ptDimDist(d));
+  inp.style.left=(sc.x-38)+'px';
+  inp.style.top=(sc.y-15)+'px';
+  cw.appendChild(inp);
+  // tmpで p1id/p2id を保存
+  canvasDimEl={el:inp, segId:null, ptDimP1:p1id, ptDimP2:p2id};
+  setTimeout(()=>{inp.focus();inp.select();},10);
+  inp.addEventListener('keydown',ev=>{
+    ev.stopPropagation();
+    if(ev.key==='Enter'){
+      const type=document.getElementById('dim-type-sel').value;
+      commitPtDim(p1id,p2id,parseFloat(inp.value),type);
+      closeCanvasDim();
+    }
+    if(ev.key==='Escape')closeCanvasDim();
+  });
+  inp.addEventListener('blur',()=>setTimeout(()=>{if(canvasDimEl?.el===inp)closeCanvasDim();},200));
+  inp.addEventListener('input',()=>{
+    const v=parseFloat(inp.value);
+    if(!isNaN(v)&&v>=0)document.getElementById('dim-cur').textContent=v.toFixed(1)+' px (入力中)';
+  });
+}
+
+function commitPtDim(p1id, p2id, val, type){
+  if(isNaN(val)||val<0){hint('有効な数値を入力してください');return;}
+  snapshot();
+  // 既存を探す or 新規作成
+  let d=ptDims.find(d=>(d.p1===p1id&&d.p2===p2id)||(d.p1===p2id&&d.p2===p1id));
+  if(d){ d.val=val; d.type=type; }
+  else { d={id:gid(),p1:p1id,p2:p2id,val,type}; ptDims.push(d); }
+  activePtDimId=d.id;
+
+  // ── プレスケール: NR前に初期値を目標に近づける ──
+  // NRは初期値が解に近いほど収束が速い。
+  // p1を固定側、p2を動かす側として、まず目標距離に近い位置に手動配置する。
+  const p1=pById(d.p1), p2=pById(d.p2);
+  if(p1&&p2&&!p2.fixed){
+    const dx=p2.x-p1.x, dy=p2.y-p1.y;
+    if(type==='dist'){
+      const cur=Math.hypot(dx,dy)||1;
+      const scale=val/cur;
+      p2.x=p1.x+dx*scale; p2.y=p1.y+dy*scale;
+    } else if(type==='horiz'){
+      const sign=dx>=0?1:-1;
+      p2.x=p1.x+sign*val;
+    } else if(type==='vert'){
+      const sign=dy>=0?1:-1;
+      p2.y=p1.y+sign*val;
+    }
+  } else if(p1&&p2&&p2.fixed&&!p1.fixed){
+    // p2が固定ならp1を動かす
+    const dx=p1.x-p2.x, dy=p1.y-p2.y;
+    if(type==='dist'){
+      const cur=Math.hypot(dx,dy)||1;
+      const scale=val/cur;
+      p1.x=p2.x+dx*scale; p1.y=p2.y+dy*scale;
+    } else if(type==='horiz'){
+      const sign=dx>=0?1:-1;
+      p1.x=p2.x+sign*val;
+    } else if(type==='vert'){
+      const sign=dy>=0?1:-1;
+      p1.y=p2.y+sign*val;
+    }
+  }
+
+  // NRソルバーで全拘束を整合
+  enforceAllConstraints();
+  document.getElementById('dim-cur').textContent=ptDimDist(d).toFixed(2)+' px';
+  document.getElementById('dim-rpval').value=val;
+  renderAll();updStatus();
+}
+
 function commitDim(segId,val){
   if(isNaN(val)||val<=0){hint('有効な数値を入力してください');return;}
   snapshot();
@@ -1700,13 +1837,32 @@ function commitDim(segId,val){
   document.getElementById('dim-rpval').value=val;
   renderAll();updConList();updTree();updStatus();
 }
-function applyDimPanel(){if(!activeDimId)return;commitDim(activeDimId,parseFloat(document.getElementById('dim-rpval').value));}
+function applyDimPanel(){
+  const val=parseFloat(document.getElementById('dim-rpval').value);
+  if(activeDimId){
+    commitDim(activeDimId,val);
+  } else if(canvasDimEl&&canvasDimEl.ptDimP1){
+    const type=document.getElementById('dim-type-sel').value;
+    commitPtDim(canvasDimEl.ptDimP1,canvasDimEl.ptDimP2,val,type);
+  } else if(activePtDimId){
+    const d=ptDims.find(d=>d.id===activePtDimId);
+    if(d){
+      const type=document.getElementById('dim-type-sel').value;
+      commitPtDim(d.p1,d.p2,val,type);
+    }
+  }
+}
 function removeDim(){
-  if(!activeDimId)return;
-  const s=sById(activeDimId);if(s){s.dim=false;s.dimVal=0;}
-  cons=cons.filter(c=>!(c.type==='寸法指定'&&c.parent===activeDimId));
-  activeDimId=null;
+  if(activeDimId){
+    const s=sById(activeDimId);if(s){s.dim=false;s.dimVal=0;}
+    cons=cons.filter(c=>!(c.type==='寸法指定'&&c.parent===activeDimId));
+    activeDimId=null;
+  } else if(activePtDimId){
+    ptDims=ptDims.filter(d=>d.id!==activePtDimId);
+    activePtDimId=null;
+  }
   document.getElementById('dim-sec').style.display='none';
+  document.getElementById('dim-type-row').style.display='none';
   closeCanvasDim();renderAll();updConList();updTree();updStatus();
 }
 
@@ -1865,7 +2021,88 @@ function renderPEdges(){
   });
 }
 
+function _renderPtDimLabel(d, tx, ty, isAct){
+  const lbl=d.val.toFixed(1);
+  const fw=(lbl.length*7+12)/VS,fh=16/VS;
+  const bg=mk('rect');
+  sa(bg,{x:tx-fw/2,y:ty-fh/2,width:fw,height:fh,
+    fill:isAct?'#332200':'#1c1400',rx:2/VS,
+    stroke:'#ffaa00','stroke-width':(isAct?1.5:.5)/VS,
+    'pointer-events':'visibleFill',cursor:'pointer'});
+  bg.addEventListener('mousedown',ev=>{
+    ev.stopPropagation();
+    activePtDimId=d.id;
+    openDimForPts(d.p1,d.p2);
+  });
+  gDim.appendChild(bg);
+  const txt=mk('text');
+  sa(txt,{x:tx,y:ty,'font-size':11/VS+'px',fill:'#ffaa00',
+    'text-anchor':'middle','dominant-baseline':'middle',
+    'font-family':'Consolas,monospace',
+    'pointer-events':'visibleFill',cursor:'pointer'});
+  txt.textContent=lbl;
+  txt.addEventListener('mousedown',ev=>{
+    ev.stopPropagation();
+    activePtDimId=d.id;
+    openDimForPts(d.p1,d.p2);
+  });
+  gDim.appendChild(txt);
+}
+
 function renderDims(){
+  // ── 点間距離寸法の描画 ──
+  ptDims.forEach(d=>{
+    const p1=pById(d.p1),p2=pById(d.p2);if(!p1||!p2)return;
+    const isAct=(activePtDimId===d.id);
+    const off=26/VS;
+
+    if(d.type==='dist'){
+      // 斜め寸法線
+      const dx=p2.x-p1.x,dy=p2.y-p1.y,len=Math.hypot(dx,dy)||1;
+      const nx=-dy/len,ny=dx/len;
+      const mx=(p1.x+p2.x)/2,my=(p1.y+p2.y)/2;
+      // 補助線
+      [p1,p2].forEach(pt=>{
+        const el=mk('line');
+        sa(el,{x1:pt.x,y1:pt.y,x2:pt.x+nx*off*1.3,y2:pt.y+ny*off*1.3,
+          stroke:'#ffaa00','stroke-width':.7/VS,'stroke-dasharray':`${4/VS},${3/VS}`,'pointer-events':'none'});
+        gDim.appendChild(el);
+      });
+      const dl=mk('line');
+      sa(dl,{x1:p1.x+nx*off,y1:p1.y+ny*off,x2:p2.x+nx*off,y2:p2.y+ny*off,
+        stroke:'#ffaa00','stroke-width':1/VS,
+        'marker-start':'url(#arr-e)','marker-end':'url(#arr-s)','pointer-events':'none'});
+      gDim.appendChild(dl);
+      _renderPtDimLabel(d, mx+nx*(off+14/VS), my+ny*(off+14/VS), isAct);
+    } else if(d.type==='horiz'){
+      // 水平寸法線
+      const y=Math.min(p1.y,p2.y)-off;
+      [p1,p2].forEach(pt=>{
+        const el=mk('line');sa(el,{x1:pt.x,y1:pt.y,x2:pt.x,y2:y-4/VS,
+          stroke:'#ffaa00','stroke-width':.7/VS,'stroke-dasharray':`${4/VS},${3/VS}`,'pointer-events':'none'});gDim.appendChild(el);
+      });
+      const dl=mk('line');
+      sa(dl,{x1:p1.x,y1:y,x2:p2.x,y2:y,
+        stroke:'#ffaa00','stroke-width':1/VS,
+        'marker-start':'url(#arr-e)','marker-end':'url(#arr-s)','pointer-events':'none'});
+      gDim.appendChild(dl);
+      _renderPtDimLabel(d,(p1.x+p2.x)/2,y-10/VS,isAct);
+    } else if(d.type==='vert'){
+      // 垂直寸法線
+      const x=Math.max(p1.x,p2.x)+off;
+      [p1,p2].forEach(pt=>{
+        const el=mk('line');sa(el,{x1:pt.x,y1:pt.y,x2:x+4/VS,y2:pt.y,
+          stroke:'#ffaa00','stroke-width':.7/VS,'stroke-dasharray':`${4/VS},${3/VS}`,'pointer-events':'none'});gDim.appendChild(el);
+      });
+      const dl=mk('line');
+      sa(dl,{x1:x,y1:p1.y,x2:x,y2:p2.y,
+        stroke:'#ffaa00','stroke-width':1/VS,
+        'marker-start':'url(#arr-e)','marker-end':'url(#arr-s)','pointer-events':'none'});
+      gDim.appendChild(dl);
+      _renderPtDimLabel(d,x+10/VS,(p1.y+p2.y)/2,isAct);
+    }
+  });
+
   segs.forEach(s=>{
     if(!s.dim)return;
     const p1=pById(s.p1),p2=pById(s.p2);if(!p1||!p2)return;
@@ -2004,6 +2241,29 @@ function highlightConElements(conId){
 }
 
 // ══════════════════════════════════════════════
+//  ドラッグ: 接続点グループ収集
+// ══════════════════════════════════════════════
+
+/* 点ptIdから線分を辿って連結する全点IDをBFSで収集する
+   固定点はグループには含めるが移動対象にはしない */
+function getConnectedPtIds(ptId){
+  const visited = new Set([ptId]);
+  const queue   = [ptId];
+  while(queue.length){
+    const cur = queue.shift();
+    // curに接続されている線分の相手端点を探す
+    for(const s of segs){
+      let other = null;
+      if(s.p1===cur) other=s.p2;
+      else if(s.p2===cur) other=s.p1;
+      else continue;
+      if(!visited.has(other)){ visited.add(other); queue.push(other); }
+    }
+  }
+  return visited;
+}
+
+// ══════════════════════════════════════════════
 //  バッジ
 // ══════════════════════════════════════════════
 function updBadges(){
@@ -2024,6 +2284,20 @@ function updBadges(){
 // ══════════════════════════════════════════════
 function onPtLMD(e,pt){
   e.stopPropagation();
+  if(tool==='dim'){
+    // 1点目: selIds[0]に記憶
+    // 2点目: selIds[1]に記憶 → 点間寸法を開く
+    if(!selIds.length||selIds[0]===pt.id){
+      selIds=[pt.id];
+      hint('もう1点クリックして点間寸法を設定');
+    } else {
+      const p1id=selIds[0];
+      selIds=[];
+      openDimForPts(p1id,pt.id);
+    }
+    renderAll();
+    return;
+  }
   if(tool==='line'){
     if(!drawing){drawing=true;drawP1=pt.id;}
     else{if(pt.id!==drawP1)addSeg(drawP1,pt.id);drawP1=pt.id;gTemp.innerHTML='';renderAll();}
@@ -2033,7 +2307,19 @@ function onPtLMD(e,pt){
     clearGhost();cancelPending();hideCtxMenu();
     if(e.shiftKey){if(!selIds.includes(pt.id)&&selIds.length<2)selIds.push(pt.id);}
     else selIds=[pt.id];
-    if(!pt.fixed){snapshot();dragPt=pt;const w=clientW(e);dragOX=w.x-pt.x;dragOY=w.y-pt.y;}
+    if(!pt.fixed){
+      snapshot();
+      dragPt=pt;
+      const w=clientW(e);
+      dragOX=w.x-pt.x; dragOY=w.y-pt.y;
+      // 接続点グループ全体のオフセットを記録
+      const connIds=getConnectedPtIds(pt.id);
+      dragGroup=new Map();
+      connIds.forEach(id=>{
+        const p=pById(id);
+        if(p&&!p.fixed) dragGroup.set(id,{ox:w.x-p.x, oy:w.y-p.y});
+      });
+    }
     renderAll();updSelInfo();
   }
 }
@@ -2111,10 +2397,22 @@ document.addEventListener('mousemove',e=>{
   document.getElementById('cy').textContent=(-sc.y).toFixed(0);
 
   if(dragPt){
-    const w=clientW(e);let nx=w.x-dragOX,ny=w.y-dragOY;
-    if(snapOn){nx=Math.round(nx/SNAP)*SNAP;ny=Math.round(ny/SNAP)*SNAP;}
-    dragPt.x=nx;dragPt.y=ny;
-    // ドラッグ後に全拘束を再適用(先行拘束維持)
+    const w=clientW(e);
+    // スナップ: dragPt(主点)でグリッドスナップを計算
+    let nx=w.x-dragOX, ny=w.y-dragOY;
+    if(snapOn){nx=Math.round(nx/SNAP)*SNAP; ny=Math.round(ny/SNAP)*SNAP;}
+    // dragPtの移動量(delta)を計算
+    const ddx=nx-dragPt.x, ddy=ny-dragPt.y;
+    dragPt.x=nx; dragPt.y=ny;
+    // 接続点グループ全体を同じdeltaで平行移動
+    if(dragGroup){
+      dragGroup.forEach((off,id)=>{
+        if(id===dragPt.id)return; // dragPt自身は上で処理済み
+        const p=pById(id);
+        if(p&&!p.fixed){ p.x+=ddx; p.y+=ddy; }
+      });
+    }
+    // NRソルバーで拘束を整合
     enforceAllConstraints();
     renderAll();
     if(ghostState)showGhost(ghostState.type);
@@ -2157,7 +2455,7 @@ document.addEventListener('mousemove',e=>{
 });
 
 document.addEventListener('mouseup',e=>{
-  dragPt=null;
+  dragPt=null; dragGroup=null;
   if(panning){panning=false;panSt=null;cw.classList.remove('cr-grabbing');}
   if(boxSel&&boxSt){
     boxSel=false;sbox.style.display='none';
@@ -2229,14 +2527,15 @@ function deleteSelected(){
   segs=segs.filter(s=>!rem.has(s.id));
   pts=pts.filter(p=>{if(!rem.has(p.id))return true;segs=segs.filter(s=>s.p1!==p.id&&s.p2!==p.id);return false;});
   cons=cons.filter(c=>!c.targets.some(t=>rem.has(t)));
-  selIds=[];activeDimId=null;clearGhost();cancelPending();closeCanvasDim();
+  ptDims=ptDims.filter(d=>!rem.has(d.p1)&&!rem.has(d.p2));
+  selIds=[];activeDimId=null;activePtDimId=null;clearGhost();cancelPending();closeCanvasDim();
   document.getElementById('dim-sec').style.display='none';
   renderAll();updSelInfo();updConList();updTree();updStatus();
 }
 function clearAll(){
   if(!confirm('全消去しますか？'))return;
   snapshot();
-  pts=[];segs=[];cons=[];selIds=[];activeDimId=null;
+  pts=[];segs=[];cons=[];ptDims=[];selIds=[];activeDimId=null;activePtDimId=null;
   clearGhost();cancelPending();closeCanvasDim();
   document.getElementById('dim-sec').style.display='none';
   renderAll();updSelInfo();updConList();updTree();updStatus();
@@ -2432,6 +2731,7 @@ function buildSaveData(){
     pts:  pts.map(p=>({...p})),
     segs: segs.map(s=>({...s})),
     cons: cons.map(c=>({...c, children:[...c.children], targets:[...c.targets]})),
+    ptDims: ptDims.map(d=>({...d})),
   };
 }
 
@@ -2465,6 +2765,7 @@ function restoreData(data){
     children:[...(c.children||[])],
     targets: [...(c.targets||[])]
   }));
+  ptDims = (data.ptDims||[]).map(d=>({...d}));
   _id = data.uid || _id;
   selIds=[]; activeDimId=null;
   clearGhost(); cancelPending(); closeCanvasDim();
